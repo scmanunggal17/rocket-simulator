@@ -14,15 +14,15 @@ import {
     accX, accY, accZ, gyroX, gyroY, gyroZ,
     magX, magY, magZ
 } from "./imuStore";
-import { currentAltitude, flightSpeed, verticalSpeed } from "./flightStore";
-import { rssi, remRssi, noise, connected, dataRate } from "./telemetryStore";
+import { currentAltitude, flightSpeed, verticalSpeed, rocketLat, rocketLon } from "./flightStore";
+import { rssi, noise, connected, dataRate } from "./telemetryStore";
 
 export function startMavlinkBridge(): () => void {
     const offs: Array<() => void> = [];
 
-    // Connection state
+    // Connection state — only watch for unexpected drops (true is set by handleConnect)
     offs.push(EventsOn("mavlink:connected", (val: boolean) => {
-        connected.set(val);
+        if (!val) connected.set(false);
     }));
 
     // Message rate
@@ -53,6 +53,17 @@ export function startMavlinkBridge(): () => void {
         magZ.set(d.magZ);
     }));
 
+    // GLOBAL_POSITION_INT (#33) — lat/lon/altitude
+    offs.push(EventsOn("mavlink:position", (d: any) => {
+        // lat/lon are 0 when no GPS fix; treat as no-fix
+        if (d.lat !== 0 || d.lon !== 0) {
+            rocketLat.set(d.lat);
+            rocketLon.set(d.lon);
+        }
+        currentAltitude.set(d.altitude);
+        verticalSpeed.set(d.vz);
+    }));
+
     // VFR_HUD (#74) — speed m/s, altitude m, vertical speed m/s
     offs.push(EventsOn("mavlink:vfr", (d: any) => {
         flightSpeed.set(d.speed);
@@ -63,7 +74,6 @@ export function startMavlinkBridge(): () => void {
     // RADIO_STATUS (#109) — raw 0–100 values
     offs.push(EventsOn("mavlink:radio", (d: any) => {
         rssi.set(d.rssi);
-        remRssi.set(d.remRssi);
         noise.set(d.noise);
     }));
 

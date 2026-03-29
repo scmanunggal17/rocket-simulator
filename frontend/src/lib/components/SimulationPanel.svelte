@@ -2,16 +2,23 @@
     import {
         simulating,
         configured,
+        armed,
         flightPhase,
+        simConfig,
         configureSimulation,
         unconfigureSimulation,
+        armRocket,
+        disarmRocket,
     } from "../stores/simulationControl";
+    import { imuSource } from "../stores/imuSource";
+    import { get } from "svelte/store";
 
-    // Configuration inputs
-    let fuelCapacity = 450; // kg
-    let launchAngle = 90; // deg
-    let thrust = 5000; // N
-    let burnTime = 8; // s
+    // Configuration inputs — seeded from the store so tab-switching doesn't reset them
+    const _cfg = get(simConfig);
+    let fuelCapacity = _cfg.fuelCapacity;
+    let launchAngle = _cfg.launchAngle;
+    let thrust = _cfg.thrust;
+    let burnTime = _cfg.burnTime;
 
     // Static rocket specifications
     const specs = [
@@ -111,21 +118,45 @@
         </div>
     </div>
 
+    <!-- IMU source row -->
+    <div class="control-row">
+        <div class="control-group">
+            <span class="control-label">IMU SOURCE</span>
+            <div class="toggle-group">
+                <button
+                    class="toggle-btn"
+                    class:active={$imuSource === "sim"}
+                    on:click={() => imuSource.set("sim")}>SIM</button
+                >
+                <button
+                    class="toggle-btn"
+                    class:active={$imuSource === "real"}
+                    on:click={() => imuSource.set("real")}>REAL ESP32</button
+                >
+            </div>
+        </div>
+    </div>
+
     <!-- ARM / status row -->
     <div class="action-row">
         {#if !$configured && !$simulating}
             <button class="btn-confirm" on:click={handleConfirm}>
-                ✓ CONFIRM &amp; ARM
+                ✓ CONFIRM
             </button>
-            <span class="action-hint">Set parameters before launching</span>
-        {:else if $configured && !$simulating}
+            <span class="action-hint">Set parameters before arming</span>
+        {:else if $configured && !$armed && !$simulating}
+            <button class="btn-arm-safety" on:click={armRocket}>
+                🔒 ARM ROCKET
+            </button>
+            <button class="btn-edit" on:click={unconfigureSimulation}
+                >EDIT</button
+            >
+        {:else if $configured && $armed && !$simulating}
             <div class="armed-indicator">
                 <span class="ready-dot"></span>
                 ARMED · READY TO LAUNCH
             </div>
-            <button class="btn-edit" on:click={unconfigureSimulation}
-                >EDIT</button
-            >
+            <button class="btn-disarm" on:click={disarmRocket}>DISARM</button>
         {:else if $simulating}
             <div class="sim-running-indicator">
                 <span class="pulse-dot"></span>
@@ -265,6 +296,64 @@
         letter-spacing: 0.05em;
     }
 
+    /* IMU source + command row */
+    .control-row {
+        display: flex;
+        gap: 24px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        border-top: 1px solid #1e293b;
+        flex-wrap: wrap;
+    }
+
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .control-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: #475569;
+        text-transform: uppercase;
+    }
+
+    .toggle-group {
+        display: flex;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .toggle-btn {
+        padding: 6px 14px;
+        border: none;
+        background: transparent;
+        color: #475569;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .toggle-btn + .toggle-btn {
+        border-left: 1px solid #334155;
+    }
+
+    .toggle-btn.active {
+        background: rgba(56, 189, 248, 0.15);
+        color: #38bdf8;
+    }
+
+    .toggle-btn:hover:not(.active) {
+        color: #94a3b8;
+        background: rgba(255, 255, 255, 0.04);
+    }
+
     /* Action row */
     .action-row {
         display: flex;
@@ -312,6 +401,47 @@
     .btn-edit:hover {
         border-color: #94a3b8;
         color: #e2e8f0;
+    }
+
+    .btn-arm-safety {
+        padding: 10px 28px;
+        border-radius: 5px;
+        border: 1px solid #4ade80;
+        background: rgba(74, 222, 128, 0.08);
+        color: #4ade80;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.9rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+    }
+
+    .btn-arm-safety:hover {
+        background: rgba(74, 222, 128, 0.2);
+        box-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
+    }
+
+    .btn-disarm {
+        padding: 6px 16px;
+        border-radius: 5px;
+        border: 1px solid #f87171;
+        background: transparent;
+        color: #f87171;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+    }
+
+    .btn-disarm:hover {
+        background: rgba(248, 113, 113, 0.12);
+        border-color: #fca5a5;
+        color: #fca5a5;
     }
 
     .armed-indicator {
