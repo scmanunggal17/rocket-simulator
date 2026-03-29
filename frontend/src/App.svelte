@@ -1,15 +1,12 @@
 <script lang="ts">
-    import { onMount } from "svelte";
     import SideMenu from "./lib/components/SideMenu.svelte";
     import TopPanel from "./lib/components/TopPanel.svelte";
     import SimulationPanel from "./lib/components/SimulationPanel.svelte";
+    import MapsPanel from "./lib/components/MapsPanel.svelte";
+    import TrajectoryPanel from "./lib/components/TrajectoryPanel.svelte";
     import {
-        startTelemetrySimulation,
         connected,
-    } from "./lib/stores/telemetryStore";
-    import {
         rssi,
-        remRssi,
         noise,
         dataRate,
     } from "./lib/stores/telemetryStore";
@@ -17,6 +14,7 @@
         flightPhase,
         countdown,
         configured,
+        armed,
         simulating,
         launchSimulation,
         abortSimulation,
@@ -24,30 +22,51 @@
     } from "./lib/stores/simulationControl";
     import { StartMavlink, StopMavlink } from "../wailsjs/go/main/App";
     import { startMavlinkBridge } from "./lib/stores/mavlinkBridge";
+    import { EventsOn } from "../wailsjs/runtime/runtime";
+
+    // ESP32 AP always assigns itself 192.168.4.1; standard MAVLink TCP port
+    const ESP32_ADDR = "192.168.4.1:5760";
 
     let sidePanelWidth = 440;
     let isResizing = false;
-    let activeTab: "simulation" | "maps" = "simulation";
+    let activeTab: "simulation" | "maps" | "trajectory" = "simulation";
     let stopBridge: (() => void) | null = null;
+    let connecting = false;
+    let connectError = false;
+
+    // Handle unexpected TCP drop (ESP32 powered off, out of range, etc.)
+    EventsOn("mavlink:connected", (val: boolean) => {
+        if (!val && stopBridge) {
+            stopBridge();
+            stopBridge = null;
+        }
+    });
 
     async function handleConnect() {
         if ($connected) {
-            StopMavlink();
             if (stopBridge) {
                 stopBridge();
                 stopBridge = null;
             }
-        } else {
-            stopBridge = startMavlinkBridge();
+            connected.set(false);
+            StopMavlink();
+        } else if (!connecting) {
+            connecting = true;
+            connectError = false;
+            // yield to the browser's paint pipeline so CONNECTING... renders
+            // before the Go TCP dial blocks the JS-Go bridge (up to 5s)
+            await new Promise((r) => setTimeout(r, 50));
             try {
-                await StartMavlink(14550);
+                await StartMavlink(ESP32_ADDR);
+                connecting = false;
+                connected.set(true);
+                stopBridge = startMavlinkBridge();
             } catch (e) {
-                // Port already in use or permission denied — tear down bridge
-                if (stopBridge) {
-                    stopBridge();
-                    stopBridge = null;
-                }
-                console.error("MAVLink listen failed:", e);
+                connecting = false;
+                connectError = true;
+                setTimeout(() => {
+                    connectError = false;
+                }, 3000);
             }
         }
     }
@@ -61,15 +80,9 @@
         APOGEE: "#a78bfa",
         DESCENT: "#fb923c",
         LANDED: "#4ade80",
+        ABORTED: "#f87171",
     };
     $: phaseColor = phaseColors[$flightPhase] ?? "#475569";
-
-    onMount(() => {
-        const stopTelemetry = startTelemetrySimulation();
-        return () => {
-            stopTelemetry();
-        };
-    });
 
     function startResize(e) {
         isResizing = true;
@@ -104,7 +117,13 @@
         <!-- Launch sequence button -->
         {#if $flightPhase === "STANDBY"}
             <button class="btn-launch" disabled>▲ LAUNCH</button>
-        {:else if $flightPhase === "READY"}
+        {:else if $flightPhase === "READY" && !$armed}
+            <button
+                class="btn-launch"
+                disabled
+                title="Arm the rocket before launching">▲ LAUNCH</button
+            >
+        {:else if $flightPhase === "READY" && $armed}
             <button class="btn-launch launch-ready" on:click={launchSimulation}
                 >▲ LAUNCH</button
             >
@@ -116,7 +135,7 @@
             <button class="btn-launch launch-abort" on:click={abortSimulation}
                 >■ ABORT</button
             >
-        {:else if $flightPhase === "LANDED"}
+        {:else if $flightPhase === "LANDED" || $flightPhase === "ABORTED"}
             <button class="btn-launch launch-reset" on:click={resetSimulation}
                 >↺ RESET</button
             >
@@ -144,27 +163,6 @@
                 >
             </div>
             <div class="telem-item">
-                <span class="telem-label">RC</span>
-                <div class="signal-bar-track">
-                    <div
-                        class="signal-bar-fill"
-                        style="width: {$remRssi}%; background: {$remRssi < 30
-                            ? '#ff4444'
-                            : $remRssi < 55
-                              ? '#ffaa00'
-                              : '#4ade80'}"
-                    ></div>
-                </div>
-                <span
-                    class="telem-value"
-                    style="color: {$remRssi < 30
-                        ? '#ff4444'
-                        : $remRssi < 55
-                          ? '#ffaa00'
-                          : '#4ade80'}">{$remRssi.toFixed(0)}%</span
-                >
-            </div>
-            <div class="telem-item">
                 <span class="telem-label">NOISE</span>
                 <span class="telem-value">{$noise.toFixed(0)}</span>
             </div>
@@ -177,13 +175,36 @@
             </div>
         </div>
 
-        <button
-            class="btn"
-            class:connected={$connected}
-            on:click={handleConnect}
-        >
-            {$connected ? "DISCONNECT" : "CONNECT"}
-        </button>
+        <div class="conn-group">
+            <span
+                class="conn-status"
+                class:conn-disconnected={!$connected &&
+                    !connecting &&
+                    !connectError}
+                class:conn-connecting={connecting}
+                class:conn-connected={$connected}
+                class:conn-error={connectError}
+            >
+                <span class="conn-dot"></span>
+                {#if connecting}
+                    CONNECTING...
+                {:else if connectError}
+                    FAILED
+                {:else if $connected}
+                    CONNECTED
+                {:else}
+                    DISCONNECTED
+                {/if}
+            </span>
+            <button
+                class="btn"
+                class:connected={$connected}
+                disabled={connecting}
+                on:click={handleConnect}
+            >
+                {$connected ? "DISCONNECT" : "CONNECT"}
+            </button>
+        </div>
     </header>
     <TopPanel />
     <main class="main-window">
@@ -197,6 +218,12 @@
                 >
                 <button
                     class="tab"
+                    class:active={activeTab === "trajectory"}
+                    on:click={() => (activeTab = "trajectory")}
+                    >TRAJECTORY</button
+                >
+                <button
+                    class="tab"
                     class:active={activeTab === "maps"}
                     on:click={() => (activeTab = "maps")}>MAPS</button
                 >
@@ -204,8 +231,10 @@
             <div class="tab-content">
                 {#if activeTab === "simulation"}
                     <SimulationPanel />
+                {:else if activeTab === "trajectory"}
+                    <TrajectoryPanel />
                 {:else}
-                    <div class="maps-placeholder"></div>
+                    <MapsPanel />
                 {/if}
             </div>
         </div>
@@ -308,6 +337,71 @@
     .btn.connected:hover {
         background: rgba(74, 222, 128, 0.1);
         box-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: wait;
+    }
+
+    /* Connection group: status pill + button */
+    .conn-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .conn-status {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        padding: 3px 8px;
+        border-radius: 4px;
+        border: 1px solid #334155;
+        background: rgba(0, 0, 0, 0.3);
+        white-space: nowrap;
+    }
+
+    .conn-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        flex-shrink: 0;
+    }
+
+    .conn-disconnected {
+        color: #475569;
+        border-color: #334155;
+    }
+
+    .conn-connecting {
+        color: #fbbf24;
+        border-color: #fbbf24;
+        animation: pulse-conn 1s ease-in-out infinite;
+    }
+
+    .conn-connected {
+        color: #4ade80;
+        border-color: #4ade80;
+    }
+
+    .conn-error {
+        color: #f87171;
+        border-color: #f87171;
+    }
+
+    @keyframes pulse-conn {
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.4;
+        }
     }
 
     /* Launch sequence button */
@@ -485,12 +579,6 @@
         flex: 1;
         min-height: 0;
         overflow: hidden;
-    }
-
-    .maps-placeholder {
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.2);
     }
 
     .resizer {
