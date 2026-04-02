@@ -30,7 +30,7 @@ export function startSerialBridge(): () => void {
     offs.push(EventsOn("serial:data", (d: any) => {
         absoluteAltitude.set(d.altitudeAbs);
         currentAltitude.set(d.altitudeRel);
-        pitch.set(d.pitch);
+        pitch.set(-d.pitch);
         roll.set(d.roll);
         yaw.set((d.yaw + 360) % 360);
         if (d.lat !== 0 || d.lon !== 0) {
