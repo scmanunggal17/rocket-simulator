@@ -1,6 +1,6 @@
 import { writable } from "svelte/store";
 
-// MAVLink ATTITUDE (#30)
+// Attitude
 export const roll = writable(0);      // deg
 export const pitch = writable(0);     // deg
 export const yaw = writable(0);       // deg 0–360
@@ -8,7 +8,7 @@ export const rollRate = writable(0);  // deg/s
 export const pitchRate = writable(0); // deg/s
 export const yawRate = writable(0);   // deg/s
 
-// MAVLink SCALED_IMU (#26)
+// Raw IMU sensors
 export const accX = writable(0);  // m/s²
 export const accY = writable(0);  // m/s²
 export const accZ = writable(0);  // m/s²

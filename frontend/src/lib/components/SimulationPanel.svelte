@@ -2,13 +2,11 @@
     import {
         simulating,
         configured,
-        armed,
         flightPhase,
         simConfig,
         configureSimulation,
         unconfigureSimulation,
-        armRocket,
-        disarmRocket,
+        launchSimulation,
     } from "../stores/simulationControl";
     import { imuSource } from "../stores/imuSource";
     import { get } from "svelte/store";
@@ -137,26 +135,20 @@
         </div>
     </div>
 
-    <!-- ARM / status row -->
+    <!-- Action row -->
     <div class="action-row">
         {#if !$configured && !$simulating}
             <button class="btn-confirm" on:click={handleConfirm}>
                 ✓ CONFIRM
             </button>
-            <span class="action-hint">Set parameters before arming</span>
-        {:else if $configured && !$armed && !$simulating}
-            <button class="btn-arm-safety" on:click={armRocket}>
-                🔒 ARM ROCKET
+            <span class="action-hint">Set parameters for simulation</span>
+        {:else if $configured && !$simulating}
+            <button class="btn-confirm" on:click={launchSimulation}>
+                ▲ LAUNCH SIM
             </button>
             <button class="btn-edit" on:click={unconfigureSimulation}
                 >EDIT</button
             >
-        {:else if $configured && $armed && !$simulating}
-            <div class="armed-indicator">
-                <span class="ready-dot"></span>
-                ARMED · READY TO LAUNCH
-            </div>
-            <button class="btn-disarm" on:click={disarmRocket}>DISARM</button>
         {:else if $simulating}
             <div class="sim-running-indicator">
                 <span class="pulse-dot"></span>
@@ -401,65 +393,6 @@
     .btn-edit:hover {
         border-color: #94a3b8;
         color: #e2e8f0;
-    }
-
-    .btn-arm-safety {
-        padding: 10px 28px;
-        border-radius: 5px;
-        border: 1px solid #4ade80;
-        background: rgba(74, 222, 128, 0.08);
-        color: #4ade80;
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.9rem;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-transform: uppercase;
-    }
-
-    .btn-arm-safety:hover {
-        background: rgba(74, 222, 128, 0.2);
-        box-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
-    }
-
-    .btn-disarm {
-        padding: 6px 16px;
-        border-radius: 5px;
-        border: 1px solid #f87171;
-        background: transparent;
-        color: #f87171;
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.8rem;
-        font-weight: 800;
-        letter-spacing: 0.1em;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-transform: uppercase;
-    }
-
-    .btn-disarm:hover {
-        background: rgba(248, 113, 113, 0.12);
-        border-color: #fca5a5;
-        color: #fca5a5;
-    }
-
-    .armed-indicator {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 0.85rem;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        color: #4ade80;
-    }
-
-    .ready-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #4ade80;
-        box-shadow: 0 0 6px #4ade80;
     }
 
     .action-hint {

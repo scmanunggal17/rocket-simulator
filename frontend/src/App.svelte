@@ -4,28 +4,23 @@
     import SimulationPanel from "./lib/components/SimulationPanel.svelte";
     import MapsPanel from "./lib/components/MapsPanel.svelte";
     import TrajectoryPanel from "./lib/components/TrajectoryPanel.svelte";
-    import {
-        connected,
-        rssi,
-        noise,
-        dataRate,
-    } from "./lib/stores/telemetryStore";
+    import { connected, dataRate } from "./lib/stores/telemetryStore";
     import {
         flightPhase,
         countdown,
         configured,
-        armed,
         simulating,
         launchSimulation,
         abortSimulation,
         resetSimulation,
     } from "./lib/stores/simulationControl";
-    import { StartMavlink, StopMavlink } from "../wailsjs/go/main/App";
-    import { startMavlinkBridge } from "./lib/stores/mavlinkBridge";
+    import {
+        ListSerialPorts,
+        ConnectSerial,
+        DisconnectSerial,
+    } from "../wailsjs/go/main/App";
+    import { startSerialBridge } from "./lib/stores/serialBridge";
     import { EventsOn } from "../wailsjs/runtime/runtime";
-
-    // ESP32 AP always assigns itself 192.168.4.1; standard MAVLink TCP port
-    const ESP32_ADDR = "192.168.4.1:5760";
 
     let sidePanelWidth = 440;
     let isResizing = false;
@@ -34,8 +29,28 @@
     let connecting = false;
     let connectError = false;
 
-    // Handle unexpected TCP drop (ESP32 powered off, out of range, etc.)
-    EventsOn("mavlink:connected", (val: boolean) => {
+    // Serial port selection
+    let availablePorts: string[] = [];
+    let selectedPort = "";
+    let baudRate = 115200;
+
+    // Refresh port list on load
+    refreshPorts();
+
+    async function refreshPorts() {
+        try {
+            const ports = await ListSerialPorts();
+            availablePorts = ports || [];
+            if (availablePorts.length > 0 && !selectedPort) {
+                selectedPort = availablePorts[0];
+            }
+        } catch {
+            availablePorts = [];
+        }
+    }
+
+    // Handle unexpected serial disconnect
+    EventsOn("serial:connected", (val: boolean) => {
         if (!val && stopBridge) {
             stopBridge();
             stopBridge = null;
@@ -49,18 +64,16 @@
                 stopBridge = null;
             }
             connected.set(false);
-            StopMavlink();
-        } else if (!connecting) {
+            DisconnectSerial();
+        } else if (!connecting && selectedPort) {
             connecting = true;
             connectError = false;
-            // yield to the browser's paint pipeline so CONNECTING... renders
-            // before the Go TCP dial blocks the JS-Go bridge (up to 5s)
             await new Promise((r) => setTimeout(r, 50));
             try {
-                await StartMavlink(ESP32_ADDR);
+                await ConnectSerial(selectedPort, baudRate);
                 connecting = false;
                 connected.set(true);
-                stopBridge = startMavlinkBridge();
+                stopBridge = startSerialBridge();
             } catch (e) {
                 connecting = false;
                 connectError = true;
@@ -91,7 +104,7 @@
 
     function onMouseMove(e) {
         if (!isResizing) return;
-        let newWidth = window.innerWidth - e.clientX - 12; // 12px for container right padding
+        let newWidth = window.innerWidth - e.clientX - 12;
         if (newWidth < 240) newWidth = 240;
         if (newWidth > 500) newWidth = 500;
         sidePanelWidth = newWidth;
@@ -114,59 +127,22 @@
             {$flightPhase}
         </span>
 
-        <!-- Launch sequence button -->
-        {#if $flightPhase === "STANDBY"}
-            <button class="btn-launch" disabled>▲ LAUNCH</button>
-        {:else if $flightPhase === "READY" && !$armed}
-            <button
-                class="btn-launch"
-                disabled
-                title="Arm the rocket before launching">▲ LAUNCH</button
-            >
-        {:else if $flightPhase === "READY" && $armed}
-            <button class="btn-launch launch-ready" on:click={launchSimulation}
-                >▲ LAUNCH</button
+        <!-- Simulation launch sequence button -->
+        {#if $simulating && ($flightPhase === "BOOST" || $flightPhase === "COAST" || $flightPhase === "APOGEE" || $flightPhase === "DESCENT")}
+            <button class="btn-launch launch-abort" on:click={abortSimulation}
+                >■ ABORT</button
             >
         {:else if $flightPhase === "COUNTDOWN"}
             <button class="btn-launch launch-countdown" disabled
                 >T–{$countdown}</button
-            >
-        {:else if $flightPhase === "BOOST" || $flightPhase === "COAST" || $flightPhase === "APOGEE" || $flightPhase === "DESCENT"}
-            <button class="btn-launch launch-abort" on:click={abortSimulation}
-                >■ ABORT</button
             >
         {:else if $flightPhase === "LANDED" || $flightPhase === "ABORTED"}
             <button class="btn-launch launch-reset" on:click={resetSimulation}
                 >↺ RESET</button
             >
         {/if}
+
         <div class="telemetry-stats">
-            <div class="telem-item">
-                <span class="telem-label">RSSI</span>
-                <div class="signal-bar-track">
-                    <div
-                        class="signal-bar-fill"
-                        style="width: {$rssi}%; background: {$rssi < 30
-                            ? '#ff4444'
-                            : $rssi < 55
-                              ? '#ffaa00'
-                              : '#4ade80'}"
-                    ></div>
-                </div>
-                <span
-                    class="telem-value"
-                    style="color: {$rssi < 30
-                        ? '#ff4444'
-                        : $rssi < 55
-                          ? '#ffaa00'
-                          : '#4ade80'}">{$rssi.toFixed(0)}%</span
-                >
-            </div>
-            <div class="telem-item">
-                <span class="telem-label">NOISE</span>
-                <span class="telem-value">{$noise.toFixed(0)}</span>
-            </div>
-            <div class="telem-divider"></div>
             <div class="telem-item">
                 <span class="telem-label">RATE</span>
                 <span class="telem-value"
@@ -176,6 +152,26 @@
         </div>
 
         <div class="conn-group">
+            <div class="serial-select">
+                <select
+                    class="port-dropdown"
+                    bind:value={selectedPort}
+                    disabled={$connected || connecting}
+                >
+                    {#if availablePorts.length === 0}
+                        <option value="">No ports found</option>
+                    {/if}
+                    {#each availablePorts as port}
+                        <option value={port}>{port}</option>
+                    {/each}
+                </select>
+                <button
+                    class="btn-refresh"
+                    on:click={refreshPorts}
+                    disabled={$connected || connecting}
+                    title="Refresh port list">⟳</button
+                >
+            </div>
             <span
                 class="conn-status"
                 class:conn-disconnected={!$connected &&
@@ -199,7 +195,7 @@
             <button
                 class="btn"
                 class:connected={$connected}
-                disabled={connecting}
+                disabled={connecting || (!$connected && !selectedPort)}
                 on:click={handleConnect}
             >
                 {$connected ? "DISCONNECT" : "CONNECT"}
@@ -351,6 +347,56 @@
         gap: 8px;
     }
 
+    .serial-select {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .port-dropdown {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        color: #38bdf8;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 4px 8px;
+        outline: none;
+        cursor: pointer;
+        min-width: 100px;
+    }
+
+    .port-dropdown:focus {
+        border-color: #38bdf8;
+    }
+
+    .port-dropdown:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .btn-refresh {
+        background: transparent;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        color: #94a3b8;
+        font-size: 0.9rem;
+        padding: 3px 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-refresh:hover {
+        color: #38bdf8;
+        border-color: #38bdf8;
+    }
+
+    .btn-refresh:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
     .conn-status {
         display: flex;
         align-items: center;
@@ -418,16 +464,6 @@
         text-transform: uppercase;
         cursor: not-allowed;
         transition: all 0.2s ease;
-    }
-
-    .btn-launch.launch-ready {
-        border-color: #4ade80;
-        color: #4ade80;
-        cursor: pointer;
-    }
-    .btn-launch.launch-ready:hover {
-        background: rgba(74, 222, 128, 0.12);
-        box-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
     }
 
     .btn-launch.launch-countdown {
@@ -501,29 +537,6 @@
         color: #475569;
         letter-spacing: 1px;
         text-transform: uppercase;
-    }
-
-    .signal-bar-track {
-        width: 40px;
-        height: 6px;
-        background: #0f172a;
-        border-radius: 3px;
-        overflow: hidden;
-        border: 1px solid #1e293b;
-    }
-
-    .signal-bar-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition:
-            width 0.4s ease,
-            background 0.4s ease;
-    }
-
-    .telem-divider {
-        width: 1px;
-        height: 20px;
-        background: #1e293b;
     }
 
     .container.resizing {

@@ -1,8 +1,9 @@
 import { writable } from "svelte/store";
 import { pitch, roll, yaw, pitchRate, rollRate, yawRate, accX, accY, accZ, gyroX, gyroY, gyroZ, magX, magY, magZ } from "./imuStore";
 
+export const absoluteAltitude = writable(0);  // m (above sea level)
 export const maxAltitude = writable(0);       // m
-export const currentAltitude = writable(0);   // m
+export const currentAltitude = writable(0);   // m (relative)
 export const fuelUsed = writable(0);          // kg
 export const fuelCapacity = writable(450);    // kg
 export const flightSpeed = writable(0);       // m/s
