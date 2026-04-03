@@ -3,6 +3,13 @@ import { writable } from "svelte/store";
 export const connected = writable(false);
 export const dataRate = writable(0);   // msg/s — counted from incoming messages
 
+/** Always holds the last raw serial data received, regardless of mode/phase guards. */
+export const lastSerialData = writable<{
+    altitudeAbs: number; altitudeRel: number;
+    pitch: number; roll: number; yaw: number;
+    lat: number; lon: number;
+} | null>(null);
+
 export function startTelemetrySimulation(): () => void {
     connected.set(true);
     let msgCount = 0;

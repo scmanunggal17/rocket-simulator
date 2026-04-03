@@ -5,157 +5,404 @@
         flightPhase,
         simConfig,
         configureSimulation,
+        configureControllerSpecs,
         unconfigureSimulation,
-        launchSimulation,
+        countdownDuration,
     } from "../stores/simulationControl";
     import { imuSource } from "../stores/imuSource";
+    import { connected } from "../stores/telemetryStore";
     import { get } from "svelte/store";
 
     // Configuration inputs — seeded from the store so tab-switching doesn't reset them
     const _cfg = get(simConfig);
-    let fuelCapacity = _cfg.fuelCapacity;
-    let launchAngle = _cfg.launchAngle;
+    let altitudeAbs = _cfg.altitudeAbs;
+    let altitudeRel = _cfg.altitudeRel;
+    let pitchVal = _cfg.pitch;
+    let rollVal = _cfg.roll;
+    let yawVal = _cfg.yaw;
+    let lat = _cfg.lat;
+    let lon = _cfg.lon;
+    let dryMass = _cfg.dryMass;
     let thrust = _cfg.thrust;
     let burnTime = _cfg.burnTime;
+    let fuelMass = _cfg.fuelMass;
 
-    // Static rocket specifications
-    const specs = [
-        { label: "Model", value: "DART-1" },
-        { label: "Length", value: "2.40 m" },
-        { label: "Diameter", value: "152 mm" },
-        { label: "Dry Mass", value: "8.5 kg" },
-        { label: "Fin Span", value: "380 mm" },
-        { label: "Motor", value: "I-class hybrid" },
-        { label: "Parachute", value: "12 in elliptical" },
-        { label: "Launch Site", value: "PAD-01" },
-    ];
-
-    $: locked = $configured || $simulating;
+    $: locked = $flightPhase !== "STANDBY";
+    $: isSerial = $imuSource === "real";
 
     function handleConfirm() {
-        configureSimulation({ fuelCapacity, launchAngle, thrust, burnTime });
+        configureSimulation({
+            altitudeAbs,
+            altitudeRel,
+            pitch: pitchVal,
+            roll: rollVal,
+            yaw: yawVal,
+            lat,
+            lon,
+            dryMass,
+            thrust,
+            burnTime,
+            fuelMass,
+        });
+    }
+
+    function handleControllerConfirm() {
+        configureControllerSpecs({ dryMass, thrust, burnTime, fuelMass });
     }
 </script>
 
 <div class="sim-panel">
-    <div class="columns">
-        <!-- Left: Configuration -->
-        <div class="col">
-            <div class="section-label">LAUNCH CONFIGURATION</div>
-            <div class="field-group">
-                <label class="field">
-                    <span class="field-label">Fuel Capacity</span>
-                    <div class="input-row">
-                        <input
-                            type="number"
-                            class="field-input"
-                            bind:value={fuelCapacity}
-                            min={10}
-                            max={2000}
-                            disabled={locked}
-                        />
-                        <span class="field-unit">kg</span>
-                    </div>
-                </label>
-                <label class="field">
-                    <span class="field-label">Launch Angle</span>
-                    <div class="input-row">
-                        <input
-                            type="number"
-                            class="field-input"
-                            bind:value={launchAngle}
-                            min={45}
-                            max={90}
-                            disabled={locked}
-                        />
-                        <span class="field-unit">deg</span>
-                    </div>
-                </label>
-                <label class="field">
-                    <span class="field-label">Thrust</span>
-                    <div class="input-row">
-                        <input
-                            type="number"
-                            class="field-input"
-                            bind:value={thrust}
-                            min={100}
-                            max={50000}
-                            disabled={locked}
-                        />
-                        <span class="field-unit">N</span>
-                    </div>
-                </label>
-                <label class="field">
-                    <span class="field-label">Burn Time</span>
-                    <div class="input-row">
-                        <input
-                            type="number"
-                            class="field-input"
-                            bind:value={burnTime}
-                            min={1}
-                            max={60}
-                            disabled={locked}
-                        />
-                        <span class="field-unit">s</span>
-                    </div>
-                </label>
-            </div>
-        </div>
-
-        <div class="col-divider"></div>
-
-        <!-- Right: Static specs -->
-        <div class="col">
-            <div class="section-label">ROCKET SPECIFICATIONS</div>
-            <div class="specs-grid">
-                {#each specs as spec}
-                    <span class="spec-label">{spec.label}</span>
-                    <span class="spec-value">{spec.value}</span>
-                {/each}
-            </div>
-        </div>
-    </div>
-
-    <!-- IMU source row -->
+    <!-- Data source row -->
     <div class="control-row">
         <div class="control-group">
-            <span class="control-label">IMU SOURCE</span>
+            <span class="control-label">DATA SOURCE</span>
             <div class="toggle-group">
                 <button
                     class="toggle-btn"
                     class:active={$imuSource === "sim"}
-                    on:click={() => imuSource.set("sim")}>SIM</button
+                    on:click={() => imuSource.set("sim")}>SIMULATION</button
                 >
                 <button
                     class="toggle-btn"
                     class:active={$imuSource === "real"}
-                    on:click={() => imuSource.set("real")}>REAL ESP32</button
+                    on:click={() => imuSource.set("real")}>CONTROLLER</button
                 >
             </div>
         </div>
-    </div>
-
-    <!-- Action row -->
-    <div class="action-row">
-        {#if !$configured && !$simulating}
-            <button class="btn-confirm" on:click={handleConfirm}>
-                ✓ CONFIRM
-            </button>
-            <span class="action-hint">Set parameters for simulation</span>
-        {:else if $configured && !$simulating}
-            <button class="btn-confirm" on:click={launchSimulation}>
-                ▲ LAUNCH SIM
-            </button>
-            <button class="btn-edit" on:click={unconfigureSimulation}
-                >EDIT</button
-            >
-        {:else if $simulating}
-            <div class="sim-running-indicator">
-                <span class="pulse-dot"></span>
-                {$flightPhase}
+        {#if isSerial}
+            <div class="source-hint">
+                <span class="hint-dot" class:hint-connected={$connected}></span>
+                {#if $connected}
+                    Reading data from serial controller
+                {:else}
+                    Connect serial port to receive data
+                {/if}
             </div>
         {/if}
     </div>
+
+    {#if !isSerial}
+        <!-- SIM mode: user inputs initial values -->
+        <div class="columns">
+            <div class="col">
+                <div class="section-label">INITIAL VALUES</div>
+                <div class="field-group">
+                    <label class="field">
+                        <span class="field-label">Altitude Absolute</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={altitudeAbs}
+                                step="0.01"
+                                disabled={locked}
+                            />
+                            <span class="field-unit">m ASL</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Altitude Relative</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={altitudeRel}
+                                step="0.01"
+                                disabled={locked}
+                            />
+                            <span class="field-unit">m AGL</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Pitch</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={pitchVal}
+                                step="0.01"
+                                disabled={locked}
+                            />
+                            <span class="field-unit">deg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Roll</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={rollVal}
+                                step="0.01"
+                                disabled={locked}
+                            />
+                            <span class="field-unit">deg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Yaw</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={yawVal}
+                                step="0.01"
+                                min={0}
+                                max={360}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">deg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Latitude</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input wide"
+                                bind:value={lat}
+                                step="0.000001"
+                                disabled={locked}
+                            />
+                            <span class="field-unit">deg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Longitude</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input wide"
+                                bind:value={lon}
+                                step="0.000001"
+                                disabled={locked}
+                            />
+                            <span class="field-unit">deg</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="col-divider"></div>
+
+            <div class="col">
+                <div class="section-label">ROCKET SPECIFICATIONS</div>
+                <div class="field-group">
+                    <label class="field">
+                        <span class="field-label">Dry Mass</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={dryMass}
+                                step="0.1"
+                                min={0.1}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">kg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Thrust</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={thrust}
+                                step="10"
+                                min={1}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">N</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Burn Time</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={burnTime}
+                                step="0.5"
+                                min={0.5}
+                                max={60}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">s</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Fuel Mass</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={fuelMass}
+                                step="0.1"
+                                min={0.1}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">kg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Count Down Time</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={$countdownDuration}
+                                step="1"
+                                min={1}
+                                max={60}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">s</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action row -->
+        <div class="action-row">
+            {#if $flightPhase === "STANDBY"}
+                <button class="btn-confirm" on:click={handleConfirm}>
+                    ✓ CONFIRM
+                </button>
+                <span class="action-hint"
+                    >Confirm data, then launch from the top menu</span
+                >
+            {:else if $flightPhase === "READY"}
+                <span class="confirmed-badge">✓ DATA CONFIRMED</span>
+                <button class="btn-edit" on:click={unconfigureSimulation}
+                    >EDIT</button
+                >
+            {:else}
+                <span class="confirmed-badge">✓ DATA CONFIRMED</span>
+            {/if}
+        </div>
+    {:else}
+        <!-- CONTROLLER mode: show specs + live status -->
+        <div class="columns">
+            <div class="col">
+                <div class="section-label">CONTROLLER DATA</div>
+                <div class="controller-info">
+                    <p>
+                        All telemetry data is read from the serial controller:
+                    </p>
+                    <ul>
+                        <li>Altitude (absolute & relative)</li>
+                        <li>Attitude (pitch, roll, yaw)</li>
+                        <li>GPS position (latitude, longitude)</li>
+                    </ul>
+                    <p class="auto-note">
+                        The app automatically derives: vertical speed, max
+                        altitude, flight duration, and downrange distance.
+                    </p>
+                </div>
+            </div>
+
+            <div class="col-divider"></div>
+
+            <div class="col">
+                <div class="section-label">ROCKET SPECIFICATIONS</div>
+                <div class="field-group">
+                    <label class="field">
+                        <span class="field-label">Dry Mass</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={dryMass}
+                                step="0.1"
+                                min={0.1}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">kg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Thrust</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={thrust}
+                                step="10"
+                                min={1}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">N</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Burn Time</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={burnTime}
+                                step="0.5"
+                                min={0.5}
+                                max={60}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">s</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Fuel Mass</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={fuelMass}
+                                step="0.1"
+                                min={0.1}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">kg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Count Down Time</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={$countdownDuration}
+                                step="1"
+                                min={1}
+                                max={60}
+                                disabled={locked}
+                            />
+                            <span class="field-unit">s</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controller action row -->
+        <div class="action-row">
+            {#if $flightPhase === "STANDBY"}
+                <button class="btn-confirm" on:click={handleControllerConfirm}>
+                    ✓ CONFIRM
+                </button>
+                <span class="action-hint"
+                    >Confirm rocket specs, then launch from the top menu</span
+                >
+            {:else if $flightPhase === "READY"}
+                <span class="confirmed-badge">✓ SPECS CONFIRMED</span>
+                <button class="btn-edit" on:click={unconfigureSimulation}
+                    >EDIT</button
+                >
+            {:else}
+                <span class="confirmed-badge">✓ SPECS CONFIRMED</span>
+            {/if}
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -176,8 +423,6 @@
     .columns {
         display: flex;
         gap: 0;
-        flex: 1;
-        min-height: 0;
     }
 
     .col {
@@ -262,30 +507,6 @@
         letter-spacing: 1px;
         color: #475569;
         text-transform: uppercase;
-    }
-
-    /* Specs table */
-    .specs-grid {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 8px 16px;
-        align-items: baseline;
-    }
-
-    .spec-label {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        color: #94a3b8;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-
-    .spec-value {
-        font-size: 1rem;
-        font-weight: 700;
-        color: #38bdf8;
-        letter-spacing: 0.05em;
     }
 
     /* IMU source + command row */
@@ -401,33 +622,63 @@
         letter-spacing: 1px;
     }
 
-    .sim-running-indicator {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+    .confirmed-badge {
         font-size: 0.8rem;
         font-weight: 800;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.1em;
         color: #4ade80;
     }
 
-    .pulse-dot {
+    .field-input.wide {
+        max-width: 160px;
+    }
+
+    /* Source hint (controller mode) */
+    .source-hint {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        letter-spacing: 0.5px;
+        color: #64748b;
+    }
+
+    .hint-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #4ade80;
-        animation: pulse 1s ease-in-out infinite;
+        background: #475569;
+        flex-shrink: 0;
     }
 
-    @keyframes pulse {
-        0%,
-        100% {
-            opacity: 1;
-            transform: scale(1);
-        }
-        50% {
-            opacity: 0.3;
-            transform: scale(0.7);
-        }
+    .hint-dot.hint-connected {
+        background: #4ade80;
+        box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+    }
+
+    /* Controller info panel */
+    .controller-info {
+        font-size: 12px;
+        color: #94a3b8;
+        line-height: 1.6;
+    }
+
+    .controller-info ul {
+        margin: 8px 0;
+        padding-left: 20px;
+    }
+
+    .controller-info li {
+        margin: 4px 0;
+    }
+
+    .controller-info .auto-note {
+        margin-top: 12px;
+        padding: 8px 12px;
+        background: rgba(56, 189, 248, 0.06);
+        border-left: 2px solid #38bdf8;
+        border-radius: 2px;
+        font-size: 11px;
+        color: #64748b;
     }
 </style>
