@@ -1,165 +1,214 @@
 /*
- * Rocket GCS — ESP32 Serial CSV Telemetry Firmware
+ * Rocket GCS — ESP32 Serial CSV Telemetry Simulator
  * ─────────────────────────────────────────────────────────────────────────────
- * Generates simulated rocket flight data and transmits it as CSV over USB
- * Serial to the Rocket GCS desktop application.
+ * Generates smooth, realistic rocket flight data over USB Serial.
+ * Data ramps gradually between phases — no random jumps.
  *
- * CSV format (one line per sample):
+ * CSV format (one line per sample, 10 Hz):
  *   altitude_abs, altitude_rel, pitch, roll, yaw, latitude, longitude
  *
- * Example:
- *   154.96,12.22,68.31,-1.25,187.81,-7.777593,110.440867
+ * Flight phases:
+ *   PAD (3s) → BOOST (4s) → COAST (12s) → DROGUE (36s) → MAIN (40s) → LANDED
  *
  * Requirements:
- *   - ESP32 board (any variant)
- *   - USB cable connected to PC
- *   - Arduino IDE with ESP32 board support >= 2.0
- *
- * Setup:
- *   1. Flash the ESP32.
- *   2. Connect USB to Windows PC.
- *   3. In the GCS app select the COM port and click CONNECT.
+ *   - Arduino Nano V3 (ATmega328P)
+ *   - USB cable to PC
+ *   - Arduino IDE
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 #include <Arduino.h>
 #include <math.h>
 
-// ── User configuration ───────────────────────────────────────────────────────
+// ── Configuration ────────────────────────────────────────────────────────────
 #define SERIAL_BAUD  115200
-#define SEND_RATE_HZ 10      // CSV output rate
-// ─────────────────────────────────────────────────────────────────────────────
-
-static const float G       = 9.80665f;
-static const float DEG2RAD = (float)M_PI / 180.0f;
+#define SEND_RATE_HZ 10
+#define SEND_DT      (1.0f / SEND_RATE_HZ)
 
 // ── Launch site ──────────────────────────────────────────────────────────────
 #define LAUNCH_LAT    -7.800000f
 #define LAUNCH_LON   110.370000f
-#define LAUNCH_ALT   142.0f      // launch site altitude ASL (m)
+#define LAUNCH_ALT   142.0f   // ASL (m)
 
-// ── Flight timeline (seconds from ignition) ──────────────────────────────────
-#define T_BURNOUT     3.8f
-#define T_APOGEE     15.5f
-#define T_MAIN       51.0f
-#define T_LAND       94.0f
+// ── Flight timeline (seconds after ignition) ─────────────────────────────────
+#define T_PAD        3.0f     // sit on pad before ignition
+#define T_BURNOUT    7.0f     // ignition at 3s, burnout at 7s (4s burn)
+#define T_APOGEE    19.0f     // coast to apogee
+#define T_MAIN      55.0f     // drogue descent
+#define T_LAND      95.0f     // main chute to landing
 
-#define V_BURNOUT   200.0f
-#define ALT_APOGEE 1550.0f
-#define V_DROGUE     35.0f
-#define V_MAIN        7.0f
+// ── Flight parameters ────────────────────────────────────────────────────────
+#define V_BURNOUT   180.0f    // vertical speed at burnout (m/s)
+#define ALT_APOGEE 1400.0f    // max altitude AGL (m)
+#define V_DROGUE     28.0f    // descent rate under drogue (m/s)
+#define V_MAIN        5.0f    // descent rate under main (m/s)
 
-// ── Flight state ─────────────────────────────────────────────────────────────
-static bool  flightActive = false;
-static float t            = 0.0f;
-static float yawDeg       = 45.0f;
-static float rollDeg      = 0.0f;
-static float rollAccum    = 0.0f;
-static float pitchDeg     = 89.0f;
+// ── State ────────────────────────────────────────────────────────────────────
+static float t = 0.0f;
+static bool  running = false;
+static unsigned long lastSend = 0;
 
-// ── Piecewise flight model ───────────────────────────────────────────────────
+// Smoothed state (updated incrementally for smooth transitions)
+static float pitch  = 0.0f;
+static float roll   = 0.0f;
+static float yaw    = 45.0f;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+// Smoothly move 'current' toward 'target' by at most 'maxStep' per call
+static float approach(float current, float target, float maxStep) {
+    float diff = target - current;
+    if (diff >  maxStep) diff =  maxStep;
+    if (diff < -maxStep) diff = -maxStep;
+    return current + diff;
+}
+
+// Linear interpolation
+static float lerp(float a, float b, float frac) {
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    return a + (b - a) * frac;
+}
+
+// ── Altitude model (piecewise physics) ───────────────────────────────────────
 static float flightAlt(float tm) {
-    const float accel   = V_BURNOUT / T_BURNOUT;
-    const float altBurn = 0.5f * accel * T_BURNOUT * T_BURNOUT;
-    const float cDur    = T_APOGEE - T_BURNOUT;
-    const float cDecel  = V_BURNOUT / cDur;
-    const float altMain = ALT_APOGEE - V_DROGUE * (T_MAIN - T_APOGEE);
+    if (tm <= T_PAD) return 0.0f;
 
-    if (tm <= 0.0f)      return 0.0f;
-    if (tm < T_BURNOUT)  return 0.5f * accel * tm * tm;
-    if (tm < T_APOGEE) { float tc = tm - T_BURNOUT;
-                         return altBurn + V_BURNOUT * tc - 0.5f * cDecel * tc * tc; }
-    if (tm < T_MAIN)     return ALT_APOGEE - V_DROGUE * (tm - T_APOGEE);
-    if (tm < T_LAND)     return altMain    - V_MAIN   * (tm - T_MAIN);
+    float ft = tm - T_PAD; // time since ignition
+    float burnDur  = T_BURNOUT - T_PAD;
+    float coastDur = T_APOGEE  - T_BURNOUT;
+
+    float accel   = V_BURNOUT / burnDur;
+    float altBurn = 0.5f * accel * burnDur * burnDur;
+    float cDecel  = V_BURNOUT / coastDur;
+
+    if (tm < T_BURNOUT) {
+        // Boost: constant acceleration
+        float bt = ft;
+        return 0.5f * accel * bt * bt;
+    }
+    if (tm < T_APOGEE) {
+        // Coast: decelerating under gravity
+        float ct = tm - T_BURNOUT;
+        return altBurn + V_BURNOUT * ct - 0.5f * cDecel * ct * ct;
+    }
+
+    float altMain = ALT_APOGEE - V_DROGUE * (T_MAIN - T_APOGEE);
+
+    if (tm < T_MAIN) {
+        // Drogue descent
+        return ALT_APOGEE - V_DROGUE * (tm - T_APOGEE);
+    }
+    if (tm < T_LAND) {
+        // Main chute descent
+        return altMain - V_MAIN * (tm - T_MAIN);
+    }
     return 0.0f;
 }
 
-// GPS: constant wind drift
+// ── GPS model (smooth wind drift along heading) ─────────────────────────────
 static float flightLat(float tm) {
-    return LAUNCH_LAT + (4.0f * fminf(tm, T_LAND)) / 111000.0f;
+    float drift = (tm <= T_PAD) ? 0.0f : fminf(tm - T_PAD, T_LAND - T_PAD);
+    return LAUNCH_LAT + (3.5f * drift) / 111000.0f;
 }
+
 static float flightLon(float tm) {
-    return LAUNCH_LON + (2.0f * fminf(tm, T_LAND)) / (111000.0f * 0.9907f);
+    float drift = (tm <= T_PAD) ? 0.0f : fminf(tm - T_PAD, T_LAND - T_PAD);
+    return LAUNCH_LON + (1.8f * drift) / (111000.0f * 0.9907f);
 }
 
-// ── Attitude simulation ─────────────────────────────────────────────────────
+// ── Attitude update (smooth ramping, no random jumps) ────────────────────────
 void updateAttitude() {
-    const float dt = 1.0f / SEND_RATE_HZ;
-    float rollRateDeg;
+    float targetPitch, targetRoll, yawRate;
 
-    if (!flightActive) {
-        pitchDeg    = 89.5f;
-        rollRateDeg = 0.0f;
-    } else if (t < T_BURNOUT) {
-        pitchDeg    = 89.0f - (t / T_BURNOUT) * 2.0f + sinf(t * 5.0f) * 0.4f;
-        rollRateDeg = 30.0f;
-        yawDeg      = fmodf(yawDeg + 0.3f, 360.0f);
-    } else if (t < T_APOGEE) {
-        float ph = (t - T_BURNOUT) / (T_APOGEE - T_BURNOUT);
-        pitchDeg    = 87.0f - ph * 8.0f + sinf(t * 1.8f) * 1.2f;
-        rollRateDeg = 30.0f * (1.0f - ph) + 4.0f;
-        yawDeg      = fmodf(yawDeg + 0.1f, 360.0f);
-    } else if (t < T_MAIN) {
-        float ph = (t - T_APOGEE) / (T_MAIN - T_APOGEE);
-        pitchDeg    = 79.0f * (1.0f - ph) + sinf(t * 3.0f) * (12.0f * (1.0f - ph));
-        rollRateDeg = 80.0f * (1.0f - ph) + 5.0f;
-        yawDeg      = fmodf(yawDeg + 0.8f, 360.0f);
-    } else if (t < T_LAND) {
-        pitchDeg    = sinf(t * 0.65f) * 5.0f;
-        rollRateDeg = 4.0f;
-        yawDeg      = fmodf(yawDeg + 0.15f, 360.0f);
-    } else {
-        pitchDeg    = 0.0f;
-        rollRateDeg = 0.0f;
+    if (t <= T_PAD) {
+        // On pad: vertical, stationary
+        targetPitch = 0.0f;
+        targetRoll  = 0.0f;
+        yawRate     = 0.0f;
+    }
+    else if (t < T_BURNOUT) {
+        // Boost: pitch ramps from 0 to ~85 (nearly vertical flight)
+        float phase = (t - T_PAD) / (T_BURNOUT - T_PAD);
+        targetPitch = lerp(0.0f, 85.0f, phase);
+        targetRoll  = phase * 8.0f;  // slight roll buildup
+        yawRate     = 0.3f;
+    }
+    else if (t < T_APOGEE) {
+        // Coast: pitch slowly decreases as rocket tips over
+        float phase = (t - T_BURNOUT) / (T_APOGEE - T_BURNOUT);
+        targetPitch = lerp(85.0f, 45.0f, phase);
+        targetRoll  = lerp(8.0f, 15.0f, phase);
+        yawRate     = 0.15f;
+    }
+    else if (t < T_MAIN) {
+        // Drogue: pitch settles toward 0 (hanging vertical), some sway
+        float phase = (t - T_APOGEE) / (T_MAIN - T_APOGEE);
+        float sway  = sinf(t * 0.4f) * (8.0f * (1.0f - phase));
+        targetPitch = lerp(45.0f, 2.0f, phase) + sway;
+        targetRoll  = sinf(t * 0.3f) * (10.0f * (1.0f - phase));
+        yawRate     = 0.6f;  // spinning under drogue
+    }
+    else if (t < T_LAND) {
+        // Main chute: very stable, gentle sway
+        float phase = (t - T_MAIN) / (T_LAND - T_MAIN);
+        targetPitch = sinf(t * 0.25f) * (3.0f * (1.0f - phase));
+        targetRoll  = sinf(t * 0.2f) * (2.0f * (1.0f - phase));
+        yawRate     = 0.1f;
+    }
+    else {
+        // Landed: everything settles to 0
+        targetPitch = 0.0f;
+        targetRoll  = 0.0f;
+        yawRate     = 0.0f;
     }
 
-    rollAccum += rollRateDeg * dt;
-    rollDeg    = fmodf(rollAccum, 360.0f);
+    // Smooth approach — max change per tick keeps data rational
+    float maxPitchStep = 2.0f;  // max 2 deg per tick (20 deg/s at 10Hz)
+    float maxRollStep  = 1.5f;
+    pitch = approach(pitch, targetPitch, maxPitchStep);
+    roll  = approach(roll,  targetRoll,  maxRollStep);
+    yaw   = fmodf(yaw + yawRate, 360.0f);
 }
 
-// ── Arduino setup / loop ─────────────────────────────────────────────────────
-static unsigned long lastSend = 0;
-static const unsigned long sendInterval = 1000 / SEND_RATE_HZ;
-
+// ── Arduino ──────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(200);
-
-    // Auto-start flight after 3 seconds (simulated launch)
-    flightActive = true;
+    running = true;
     t = 0.0f;
-    rollAccum = 0.0f;
-    yawDeg = 45.0f;
-    pitchDeg = 89.0f;
+    pitch = 0.0f;
+    roll  = 0.0f;
+    yaw   = 45.0f;
 }
 
 void loop() {
     unsigned long now = millis();
+    if (now - lastSend < (1000 / SEND_RATE_HZ)) return;
+    lastSend = now;
 
-    if (now - lastSend >= sendInterval) {
-        lastSend = now;
+    t += SEND_DT;
 
-        if (flightActive) {
-            t += 1.0f / SEND_RATE_HZ;
-            if (t > T_LAND) {
-                flightActive = false;
-            }
-        }
+    updateAttitude();
 
-        updateAttitude();
+    float altRel = flightAlt(t);
+    float altAbs = LAUNCH_ALT + altRel;
+    float lat    = flightLat(t);
+    float lon    = flightLon(t);
 
-        float altRel = flightAlt(t);
-        float altAbs = LAUNCH_ALT + altRel;
-        float lat    = flightLat(t);
-        float lon    = flightLon(t);
+    // CSV: altAbs, altRel, pitch, roll, yaw, lat, lon
+    Serial.print(altAbs, 2);   Serial.print(',');
+    Serial.print(altRel, 2);   Serial.print(',');
+    Serial.print(pitch, 2);    Serial.print(',');
+    Serial.print(roll, 2);     Serial.print(',');
+    Serial.print(yaw, 2);      Serial.print(',');
+    Serial.print(lat, 6);      Serial.print(',');
+    Serial.println(lon, 6);
 
-        // CSV: altAbs, altRel, pitch, roll, yaw, lat, lon
-        Serial.print(altAbs, 2);     Serial.print(',');
-        Serial.print(altRel, 2);     Serial.print(',');
-        Serial.print(pitchDeg, 2);   Serial.print(',');
-        Serial.print(rollDeg, 2);    Serial.print(',');
-        Serial.print(yawDeg, 2);     Serial.print(',');
-        Serial.print(lat, 6);        Serial.print(',');
-        Serial.println(lon, 6);
+    // Loop flight: restart after landing + 5s pause
+    if (t > T_LAND + 5.0f) {
+        t     = 0.0f;
+        pitch = 0.0f;
+        roll  = 0.0f;
+        yaw   = 45.0f;
     }
 }
