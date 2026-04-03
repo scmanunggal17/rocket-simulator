@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,4 +150,41 @@ func (a *App) parseLine(line string) {
 	a.mu.Lock()
 	a.msgCount++
 	a.mu.Unlock()
+}
+
+// SaveFlightLog writes a JSON flight log to ~/Documents/rocket-simulator/logs/.
+// The filename is derived from the current timestamp.
+func (a *App) SaveFlightLog(jsonData string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot find home dir: %w", err)
+	}
+	dir := filepath.Join(home, "Documents", "rocket-simulator", "logs")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("cannot create log dir: %w", err)
+	}
+	fname := fmt.Sprintf("flight_%s.json", time.Now().Format("20060102_150405"))
+	path := filepath.Join(dir, fname)
+	if err := os.WriteFile(path, []byte(jsonData), 0644); err != nil {
+		return "", fmt.Errorf("cannot write log: %w", err)
+	}
+	return path, nil
+}
+
+// OpenLogFile opens a file picker dialog and returns the content of the selected JSON log.
+func (a *App) OpenLogFile() (string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Open Flight Log",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "JSON Flight Logs (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read log file: %w", err)
+	}
+	return string(data), nil
 }
