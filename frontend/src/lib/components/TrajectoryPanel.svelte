@@ -6,23 +6,16 @@
         maxAltitude,
     } from "../stores/flightStore";
     import { roll, pitch, yaw } from "../stores/imuStore";
-    import { connected } from "../stores/telemetryStore";
+    import { trail, missionTime } from "../stores/trajectoryStore";
+    import type { TrailPoint } from "../stores/trajectoryStore";
+    import { simulating, flightPhase } from "../stores/simulationControl";
+    import type { FlightPhase } from "../stores/simulationControl";
+    import { get } from "svelte/store";
 
     // ── Canvas refs ───────────────────────────────────────────────────────────
     let arcCanvas: HTMLCanvasElement;
     let rocketCanvas: HTMLCanvasElement;
     let rafId: number;
-
-    // ── Trail data ────────────────────────────────────────────────────────────
-    interface TrailPoint {
-        t: number;
-        alt: number;
-        vz: number;
-    }
-    let trail: TrailPoint[] = [];
-    let missionTime = 0;
-    let lastTs = 0;
-    const MAX_TRAIL = 2000;
 
     // ── Reactive snapshot of stores ───────────────────────────────────────────
     let _alt = 0,
@@ -31,29 +24,32 @@
     let _roll = 0,
         _pitch = 0,
         _yaw = 0;
+    let _prevAlt = 0;
+    let _vzDerived = 0;
+    let _trail: TrailPoint[] = get(trail);
+    let _missionTime = get(missionTime);
+    let _simulating = false;
+    let _phase: FlightPhase = "STANDBY";
+    let lastTs = 0;
 
     const unsubs = [
         currentAltitude.subscribe((v) => {
-            // a hard reset to 0 (from resetSimulation/abortSimulation) clears the trail
-            if (v === 0 && _alt > 0) {
-                trail = [];
-                missionTime = 0;
-                lastTs = 0;
-            }
+            _vzDerived = (v - _prevAlt) * 10;
+            _prevAlt = v;
             _alt = v;
         }),
-        verticalSpeed.subscribe((v) => (_vz = v)),
+        verticalSpeed.subscribe((v) => {
+            if (v !== 0) _vz = v;
+            else _vz = _vzDerived;
+        }),
         maxAltitude.subscribe((v) => (_maxAlt = v)),
         roll.subscribe((v) => (_roll = v)),
         pitch.subscribe((v) => (_pitch = v)),
         yaw.subscribe((v) => (_yaw = v)),
-        connected.subscribe((v) => {
-            if (!v) {
-                trail = [];
-                missionTime = 0;
-                lastTs = 0;
-            }
-        }),
+        trail.subscribe((v) => (_trail = v)),
+        missionTime.subscribe((v) => (_missionTime = v)),
+        simulating.subscribe((v) => (_simulating = v)),
+        flightPhase.subscribe((v) => (_phase = v)),
     ];
 
     // ── Colour helpers ────────────────────────────────────────────────────────
@@ -108,8 +104,8 @@
 
         // Time axis labels
         ctx.textAlign = "center";
-        if (trail.length > 1) {
-            const tMax = trail[trail.length - 1].t;
+        if (_trail.length > 1) {
+            const tMax = _trail[_trail.length - 1].t;
             const steps = Math.min(6, Math.floor(tMax / 10) + 1);
             for (let i = 0; i <= steps; i++) {
                 const tv = (tMax / steps) * i;
@@ -119,16 +115,16 @@
         }
 
         // Trail line
-        if (trail.length > 1) {
-            const tMax = trail[trail.length - 1].t || 1;
+        if (_trail.length > 1) {
+            const tMax = _trail[_trail.length - 1].t || 1;
             ctx.lineWidth = 2;
             ctx.lineJoin = "round";
             ctx.lineCap = "round";
 
             // Gradient stroke by phase
-            for (let i = 1; i < trail.length; i++) {
-                const p0 = trail[i - 1],
-                    p1 = trail[i];
+            for (let i = 1; i < _trail.length; i++) {
+                const p0 = _trail[i - 1],
+                    p1 = _trail[i];
                 const x0 = PAD.left + fw * (p0.t / tMax);
                 const y0 = PAD.top + fh * (1 - p0.alt / dispMax);
                 const x1 = PAD.left + fw * (p1.t / tMax);
@@ -141,7 +137,7 @@
             }
 
             // Current position dot
-            const last = trail[trail.length - 1];
+            const last = _trail[_trail.length - 1];
             const cx = PAD.left + fw * (last.t / tMax);
             const cy = PAD.top + fh * (1 - last.alt / dispMax);
             ctx.beginPath();
@@ -184,8 +180,9 @@
 
         const cx = W / 2,
             cy = H / 2;
-        // Convert pitch from "up from horizon" to rotation from canvas Y-axis
-        // pitch=90 → straight up → angle=0, pitch=0 → horizontal → angle=90
+        // Convert pitch to canvas rotation
+        // pitch > 0 → nose up (from horizontal), pitch < 0 → nose down
+        // Canvas: 0 rad = pointing up on screen
         const pitchRad = ((90 - _pitch) * Math.PI) / 180;
         const rollRad = (_roll * Math.PI) / 180;
         const bodyLen = Math.min(W, H) * 0.52;
@@ -193,7 +190,7 @@
 
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(pitchRad); // pitch rotation (nose-up/down)
+        ctx.rotate(pitchRad);
 
         // ── Shadow/glow ───────────────────────────────────────────────────────
         const grd = ctx.createRadialGradient(
@@ -211,6 +208,7 @@
         ctx.fillStyle = grd;
         ctx.fill();
 
+        // Derive vertical speed from altitude change for visual effects
         const col = phaseColor(_vz, _alt);
         const noseLen = bodyLen * 0.32;
         const finHeight = bodyLen * 0.22;
@@ -318,8 +316,8 @@
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // ── Engine plume (boost only) ─────────────────────────────────────────
-        if (_alt > 5 && _vz > 30) {
+        // ── Engine plume (BOOST phase — fuel is burning) ──────────────────────
+        if (_phase === "BOOST") {
             const plumeLen = bodyLen * (0.3 + Math.random() * 0.12);
             const plumeGrd = ctx.createLinearGradient(
                 0,
@@ -350,9 +348,15 @@
             ctx.fill();
         }
 
-        // ── Drogue/main chute ─────────────────────────────────────────────────
-        if (_alt > 20 && _vz < -3) {
-            const isMain = _vz > -20;
+        // ── Drogue/main chute (after fuel empty: COAST → LANDED) ──────────────
+        if (
+            false &&
+            (_phase === "COAST" ||
+                _phase === "APOGEE" ||
+                _phase === "DESCENT" ||
+                _phase === "LANDED")
+        ) {
+            const isMain = _phase === "DESCENT" || _phase === "LANDED";
             const chuteR = isMain ? bodyLen * 0.45 : bodyLen * 0.22;
             const chuteY = noseTipY - chuteR * 0.6;
             // Lines from nose to chute
@@ -394,10 +398,18 @@
         const dt = Math.min((ts - lastTs) / 1000, 0.1);
         lastTs = ts;
 
-        if (_alt > 1 || trail.length > 0) {
-            missionTime += dt;
-            trail.push({ t: missionTime, alt: _alt, vz: _vz });
-            if (trail.length > MAX_TRAIL) trail.shift();
+        if (
+            _simulating &&
+            (_alt > 1 ||
+                (_trail.length > 0 && _trail[_trail.length - 1]?.alt > 0))
+        ) {
+            _missionTime += dt;
+            missionTime.set(_missionTime);
+            const newTrail = [
+                ..._trail,
+                { t: _missionTime, alt: _alt, vz: _vz },
+            ];
+            trail.set(newTrail);
         }
 
         drawArc();
