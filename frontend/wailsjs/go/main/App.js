@@ -13,3 +13,11 @@ export function DisconnectSerial() {
 export function ListSerialPorts() {
   return window['go']['main']['App']['ListSerialPorts']();
 }
+
+export function OpenLogFile() {
+  return window['go']['main']['App']['OpenLogFile']();
+}
+
+export function SaveFlightLog(arg1) {
+  return window['go']['main']['App']['SaveFlightLog'](arg1);
+}

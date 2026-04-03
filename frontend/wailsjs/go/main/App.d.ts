@@ -6,3 +6,7 @@ export function ConnectSerial(arg1:string,arg2:number):Promise<void>;
 export function DisconnectSerial():Promise<void>;
 
 export function ListSerialPorts():Promise<Array<string>>;
+
+export function OpenLogFile():Promise<string>;
+
+export function SaveFlightLog(arg1:string):Promise<string>;
