@@ -4,6 +4,7 @@
     import SimulationPanel from "./lib/components/SimulationPanel.svelte";
     import MapsPanel from "./lib/components/MapsPanel.svelte";
     import TrajectoryPanel from "./lib/components/TrajectoryPanel.svelte";
+    import LogReplayPanel from "./lib/components/LogReplayPanel.svelte";
     import { connected, dataRate } from "./lib/stores/telemetryStore";
     import {
         flightPhase,
@@ -11,6 +12,7 @@
         configured,
         simulating,
         launchSimulation,
+        launchFromController,
         abortSimulation,
         resetSimulation,
     } from "./lib/stores/simulationControl";
@@ -20,11 +22,13 @@
         DisconnectSerial,
     } from "../wailsjs/go/main/App";
     import { startSerialBridge } from "./lib/stores/serialBridge";
+    import { imuSource } from "./lib/stores/imuSource";
     import { EventsOn } from "../wailsjs/runtime/runtime";
 
     let sidePanelWidth = 440;
     let isResizing = false;
-    let activeTab: "simulation" | "maps" | "trajectory" = "simulation";
+    let activeTab: "simulation" | "maps" | "trajectory" | "replay" =
+        "simulation";
     let stopBridge: (() => void) | null = null;
     let connecting = false;
     let connectError = false;
@@ -127,14 +131,22 @@
             {$flightPhase}
         </span>
 
-        <!-- Simulation launch sequence button -->
-        {#if $simulating && ($flightPhase === "BOOST" || $flightPhase === "COAST" || $flightPhase === "APOGEE" || $flightPhase === "DESCENT")}
-            <button class="btn-launch launch-abort" on:click={abortSimulation}
-                >■ ABORT</button
+        <!-- Simulation launch / abort / reset -->
+        {#if $imuSource === "sim" && $configured && !$simulating && $flightPhase === "READY"}
+            <button class="btn-launch launch-go" on:click={launchSimulation}
+                >▲ LAUNCH</button
+            >
+        {:else if $imuSource === "real" && $connected && $configured && $flightPhase === "READY"}
+            <button class="btn-launch launch-go" on:click={launchFromController}
+                >▲ LAUNCH</button
             >
         {:else if $flightPhase === "COUNTDOWN"}
             <button class="btn-launch launch-countdown" disabled
                 >T–{$countdown}</button
+            >
+        {:else if $simulating && ($flightPhase === "BOOST" || $flightPhase === "COAST" || $flightPhase === "APOGEE" || $flightPhase === "DESCENT")}
+            <button class="btn-launch launch-abort" on:click={abortSimulation}
+                >■ ABORT</button
             >
         {:else if $flightPhase === "LANDED" || $flightPhase === "ABORTED"}
             <button class="btn-launch launch-reset" on:click={resetSimulation}
@@ -220,6 +232,11 @@
                 >
                 <button
                     class="tab"
+                    class:active={activeTab === "replay"}
+                    on:click={() => (activeTab = "replay")}>LOG REPLAY</button
+                >
+                <button
+                    class="tab"
                     class:active={activeTab === "maps"}
                     on:click={() => (activeTab = "maps")}>MAPS</button
                 >
@@ -229,6 +246,8 @@
                     <SimulationPanel />
                 {:else if activeTab === "trajectory"}
                     <TrajectoryPanel />
+                {:else if activeTab === "replay"}
+                    <LogReplayPanel />
                 {:else}
                     <MapsPanel />
                 {/if}
@@ -464,6 +483,16 @@
         text-transform: uppercase;
         cursor: not-allowed;
         transition: all 0.2s ease;
+    }
+
+    .btn-launch.launch-go {
+        border-color: #38bdf8;
+        color: #38bdf8;
+        cursor: pointer;
+    }
+    .btn-launch.launch-go:hover {
+        background: rgba(56, 189, 248, 0.15);
+        box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
     }
 
     .btn-launch.launch-countdown {
