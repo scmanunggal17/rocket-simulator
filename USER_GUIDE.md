@@ -1,26 +1,41 @@
 # Rocket GCS — User Guide
 
-Rocket GCS is a ground control station (GCS) desktop application for monitoring and simulating rocket flights. It is built to interface with MAVLink-compatible avionics hardware, with a built-in simulation mode for testing and training.
+Rocket GCS is a ground control station desktop application for monitoring and simulating rocket flights. It supports two modes: a built-in **Simulation** mode for testing and training, and a **Controller** mode for reading live data from a serial-connected flight controller.
 
 ---
 
-## Layout Overview
+## Application Layout
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  HEADER  — title · phase · telemetry stats · connect    │
-├─────────────────────────────────────────────────────────┤
-│  TOP PANEL  — live flight telemetry (7 values)          │
-├──────────────────────────────┬──────────────────────────┤
-│                              │                          │
-│  MAIN WINDOW (tabbed)        │  SIDE PANEL              │
-│  · SIMULATION tab            │  · Attitude indicators   │
-│  · MAPS tab                  │  · Raw IMU sensors       │
-│                              │                          │
-└──────────────────────────────┴──────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  HEADER — title · phase · launch/abort · serial connect  │
+├──────────────────────────────────────────────────────────┤
+│  TOP PANEL — live flight telemetry (3 groups)            │
+├────────────────────────────────┬─────────────────────────┤
+│                                │                         │
+│  MAIN WINDOW (tabbed)          │  SIDE PANEL             │
+│  · SIMULATION                  │  · Attitude indicator   │
+│  · TRAJECTORY                  │  · Compass indicator    │
+│  · LOG REPLAY                  │  · Raw IMU sensors      │
+│  · MAPS                       │                         │
+│                                │                         │
+└────────────────────────────────┴─────────────────────────┘
 ```
 
-The **side panel** can be resized by dragging the divider between the main window and side panel.
+The side panel can be resized by dragging the divider between the main window and the side panel.
+
+---
+
+## How a Flight Works (Step by Step)
+
+1. Choose your **Data Source** on the SIMULATION tab: **SIMULATION** or **CONTROLLER**.
+2. Fill in the **Initial Values** and **Rocket Specifications**.
+3. Press **✓ CONFIRM**. The phase changes to **READY**.
+4. Press **▲ LAUNCH** in the header. A countdown begins.
+5. When the countdown reaches zero, the rocket launches through the flight phases:
+   **BOOST → COAST → APOGEE → DESCENT → LANDED**
+6. When the rocket lands, a flight log is automatically saved.
+7. Press **↺ RESET** to return to STANDBY and start a new mission.
 
 ---
 
@@ -29,130 +44,264 @@ The **side panel** can be resized by dragging the divider between the main windo
 | Element | Description |
 |---|---|
 | **Rocket GCS** | Application title |
-| **Phase** | Current flight phase badge (e.g. BOOST, COAST, DESCENT) |
-| **RSSI** | Local radio signal strength (0–100 %). Color: 🟢 ≥55 · 🟡 30–54 · 🔴 <30 |
-| **RC** | Remote (rocket-side) radio signal strength (0–100 %) |
-| **NOISE** | RF noise floor level. Lower is better |
-| **RATE** | Telemetry message throughput in messages per second |
-| **CONNECT / DISCONNECT** | Connect or disconnect from the MAVLink serial link. Button turns green when connected |
-
-> Data source: MAVLink `RADIO_STATUS` (#109) and `HEARTBEAT` (#0).
+| **Phase Badge** | Shows the current flight phase (see Flight Phases below) |
+| **▲ LAUNCH** | Starts the countdown and launches the rocket. Only available when phase is READY |
+| **T–N** | Countdown display (shown during COUNTDOWN phase) |
+| **■ ABORT** | Cancels the flight mid-mission. All telemetry freezes |
+| **↺ RESET** | Returns everything to STANDBY after a flight completes or is aborted |
+| **RATE** | Telemetry throughput — how many data messages per second are being processed |
+| **Serial Port** | Dropdown to select the serial/COM port for controller connection |
+| **⟳** | Refresh the list of available serial ports |
+| **CONNECT / DISCONNECT** | Open or close the serial connection to the flight controller |
 
 ---
 
-## Top Panel — Flight Telemetry
+## Flight Phases
 
-Always visible below the header. Displays live values in three groups.
+The flight progresses through these phases in order:
+
+| Phase | Color | Description |
+|---|---|---|
+| **STANDBY** | Gray | Waiting for the user to configure and confirm parameters |
+| **READY** | Blue | Configuration confirmed. Ready to launch |
+| **COUNTDOWN** | Yellow | Counting down to ignition. Duration is set by the Count Down Time parameter |
+| **BOOST** | Orange | Motor is firing. Thrust is pushing the rocket upward. Fuel is being consumed |
+| **COAST** | Blue | Motor has burned out (fuel empty). Rocket is still climbing on momentum but decelerating due to gravity |
+| **APOGEE** | Purple | The rocket has reached its highest point. Vertical speed is near zero |
+| **DESCENT** | Orange | Rocket is falling back down under gravity |
+| **LANDED** | Green | Rocket has touched down. Flight log is automatically saved |
+| **ABORTED** | Red | Flight was manually aborted by the user |
+
+---
+
+## Top Panel — Live Telemetry
+
+Always visible below the header. Shows real-time values in three groups.
 
 ### FLIGHT
 
-| Label | Unit | Description |
-|---|---|---|
-| **DURATION** | mm:ss | Elapsed time since launch |
-| **SPEED** | m/s | Total airspeed (magnitude) |
-| **V-SPEED** | m/s | Vertical speed. Green = ascending (+), orange = descending (−) |
-| **ACCEL** | m/s² | Current vertical acceleration |
+| Label | Unit | What It Shows | How It Is Calculated |
+|---|---|---|---|
+| **DURATION** | mm:ss | Time since the motor ignited | Timer starts at BOOST and counts up every 0.1 seconds |
+| **SPEED** | m/s | Total speed of the rocket | √(horizontal_speed² + vertical_speed²) |
+| **V-SPEED** | m/s | Vertical speed (up/down) | Rate of altitude change. Positive = going up, negative = coming down |
+| **ACCEL** | m/s² | Current acceleration | During BOOST: thrust ÷ dry_mass. After burnout: gravity (≈ 9.81 m/s²) pulling the rocket down |
 
 ### ALTITUDE
 
-| Label | Unit | Description |
-|---|---|---|
-| **CURRENT** | m | Current altitude above ground level (AGL) |
-| **MAX** | m | Peak altitude reached so far (shown in purple) |
-| **DOWNRANGE** | km | Horizontal distance travelled from the launch pad |
-| **APOGEE ETA** | s | Estimated seconds until the rocket reaches its highest point. Counts down to 0 at apogee |
+| Label | Unit | What It Shows | How It Is Calculated |
+|---|---|---|---|
+| **CURRENT** | m | Height above the launch point (AGL) | Starts at the Altitude Relative value and changes based on vertical speed × time |
+| **MAX** | m | Highest altitude reached so far | Tracks the peak of CURRENT altitude throughout the flight |
+| **DOWNRANGE** | km | Horizontal distance from the launch pad | Accumulated horizontal speed × time, converted to kilometers |
+| **APOGEE ETA** | s | Seconds until the rocket reaches its peak | vertical_speed ÷ gravity (9.81). Shows 0 after apogee is reached |
 
 ### PROPULSION
 
-| Label | Unit | Description |
-|---|---|---|
-| **FUEL USED** | kg | Mass of propellant consumed |
-| **REMAINING** | kg | Remaining propellant mass. Color: 🔵 normal · 🟡 <30 % · 🔴 <15 % |
-| **CAPACITY** | % | Fuel level bar showing remaining percentage |
+| Label | Unit | What It Shows | How It Is Calculated |
+|---|---|---|---|
+| **FUEL USED** | kg | How much fuel has been burned | elapsed_time × fuel_burn_rate, capped at Fuel Mass |
+| **REMAINING** | kg | Fuel left in the rocket | Fuel Mass − Fuel Used. Changes color: blue (normal), yellow (<30%), red (<15%) |
+| **CAPACITY** | % | Fuel gauge bar | (Remaining ÷ Fuel Mass) × 100 |
+
+> Fuel burn rate = Fuel Mass ÷ Burn Time (kg/s). For example: 3 kg fuel ÷ 5 s burn time = 0.6 kg/s.
 
 ---
 
-## Main Window
+## Main Window — Tabs
 
 ### SIMULATION Tab
 
-Use this tab to configure and launch a simulated flight.
+This is where you set up and configure a flight.
 
-#### Launch Configuration (editable inputs)
+#### Data Source
 
-All fields are locked while a simulation is running and can only be changed before starting.
+Toggle between two modes:
 
-| Field | Unit | Range | Default | Description |
-|---|---|---|---|---|
-| **Fuel Capacity** | kg | 10 – 2000 | 450 | Total propellant mass loaded on the rocket |
-| **Launch Angle** | deg | 45 – 90 | 90 | Rail/launch angle from horizontal. 90° = vertical |
-| **Thrust** | N | 100 – 50 000 | 5 000 | Average motor thrust during the burn phase |
-| **Burn Time** | s | 1 – 60 | 8 | Duration of the motor burn |
-
-#### Rocket Specifications (static display)
-
-Read-only reference data for the physical rocket. These are fixed for the current model (DART-1):
-
-| Field | Value |
+| Mode | Description |
 |---|---|
-| Model | DART-1 |
-| Length | 2.40 m |
-| Diameter | 152 mm |
-| Dry Mass | 8.5 kg |
-| Fin Span | 380 mm |
-| Motor | I-class hybrid |
-| Parachute | 12 in elliptical |
-| Launch Site | PAD-01 |
+| **SIMULATION** | The app generates all flight data using physics calculations. No hardware needed |
+| **CONTROLLER** | The app reads altitude, attitude, and GPS data from a serial-connected flight controller. You still need to enter rocket specifications manually |
 
-#### Controls
+#### Initial Values (Simulation Mode Only)
 
-| Button | Action |
+These set the starting conditions for the simulated flight.
+
+| Parameter | Unit | Default | Description |
+|---|---|---|---|
+| **Altitude Absolute** | m ASL | 100 | Starting altitude above sea level. This is the real-world elevation of your launch site |
+| **Altitude Relative** | m AGL | 0 | Starting altitude above ground level. Usually 0 (launching from the ground) |
+| **Pitch** | degrees | 45 | Launch angle from horizontal. 90° = straight up, 0° = horizontal. This determines how much thrust goes upward vs. forward |
+| **Roll** | degrees | 0 | Initial roll rotation. 0° = level. The rocket will oscillate slightly around this value during flight |
+| **Yaw** | degrees | 0 | Compass heading of the launch direction (0° = North, 90° = East, 180° = South, 270° = West) |
+| **Latitude** | degrees | −7.800000 | GPS latitude of the launch site |
+| **Longitude** | degrees | 110.370000 | GPS longitude of the launch site |
+
+#### Rocket Specifications
+
+These define the physical properties of your rocket. Available in both Simulation and Controller modes.
+
+| Parameter | Unit | Default | Description |
+|---|---|---|---|
+| **Dry Mass** | kg | 10 | Weight of the rocket without fuel. Used to calculate acceleration: acceleration = thrust ÷ dry_mass |
+| **Thrust** | N | 1000 | Force produced by the motor in Newtons. Higher thrust = faster acceleration |
+| **Burn Time** | s | 5 | How long the motor fires. After this time, the fuel is exhausted and the rocket coasts on momentum |
+| **Fuel Mass** | kg | 3 | Total weight of the propellant. Used to track fuel consumption and remaining fuel percentage |
+| **Count Down Time** | s | 10 | How many seconds to count down before ignition after pressing LAUNCH |
+
+#### How the Simulation Calculates Flight
+
+1. **BOOST phase**: The motor applies a constant thrust. Acceleration = thrust ÷ dry_mass. This acceleration is split into vertical and horizontal components based on the pitch angle.
+   - Vertical acceleration = sin(pitch) × (thrust ÷ dry_mass) − gravity
+   - Horizontal acceleration = cos(pitch) × (thrust ÷ dry_mass)
+
+2. **COAST phase**: Motor has stopped. Only gravity acts on the rocket (pulling it down at 9.81 m/s²). Horizontal speed decreases slightly due to air drag.
+
+3. **APOGEE**: The moment vertical speed crosses zero — the rocket stops going up and starts falling.
+
+4. **DESCENT**: Gravity pulls the rocket back down. Vertical speed becomes increasingly negative.
+
+5. **LANDED**: Altitude returns to the starting relative altitude. All speeds go to zero.
+
+> **Pitch matters a lot.** A 90° pitch sends all thrust straight up (maximum altitude, no downrange). A 45° pitch splits thrust equally between altitude and distance. Lower angles give more downrange but less height.
+
+#### Confirm & Launch
+
+| Button | When Available | What It Does |
+|---|---|---|
+| **✓ CONFIRM** | STANDBY phase | Locks in your parameters and moves to READY phase |
+| **EDIT** | READY phase | Unlocks parameters so you can change them |
+| **▲ LAUNCH** | READY phase (in header) | Starts the countdown, then launches |
+
+---
+
+### TRAJECTORY Tab
+
+Shows two real-time visualizations during flight:
+
+#### Attitude View (left)
+
+A 3D rocket silhouette that rotates to show the rocket's current orientation.
+
+| Display | Description |
 |---|---|
-| **▶ START SIMULATION** | Resets all flight data and begins the simulation using the configured parameters |
-| **■ STOP** | Halts the simulation. All telemetry values freeze at their last state |
+| **Rocket body** | Points in the direction the rocket is flying. Tilts based on pitch |
+| **Roll ring** | Small arc around the body showing roll rotation |
+| **Engine plume** | Orange flame shown during BOOST phase only |
+| **P / R / Y readout** | Current pitch, roll, and yaw angles in degrees |
 
-A pulsing green dot and **SIMULATION RUNNING** indicator is shown while the simulation is active.
+#### Trajectory Chart (right)
+
+An altitude-over-time graph that draws in real time as the rocket flies.
+
+| Element | Description |
+|---|---|
+| **Y axis** | Altitude in meters |
+| **X axis** | Mission time in seconds |
+| **Line color** | Changes by flight phase — orange (ascending), purple (apogee), blue (descending), green (ground) |
+| **White dot** | Current position on the trajectory |
+| **Live readout** | Shows current altitude, vertical speed, and max altitude at the top |
+
+---
+
+### LOG REPLAY Tab
+
+Open a previously saved flight log and view the trajectory data without running a new simulation.
+
+#### How to Use
+
+1. Click **⏏ OPEN LOG FILE**.
+2. A file picker will appear. Navigate to `~/Documents/rocket-simulator/logs/` and select a `.json` file.
+3. The trajectory chart and all flight data will be displayed.
+
+#### What Is Shown
+
+| Section | Contents |
+|---|---|
+| **Trajectory Chart** | The same altitude-over-time graph as the TRAJECTORY tab, drawn from saved data. Includes phase marker lines showing when each phase transition occurred |
+| **Summary** | Max altitude, max vertical speed, flight duration, downrange distance |
+| **Phases** | Each phase transition with its timestamp (e.g., BOOST at T+0.0s, COAST at T+5.0s) |
+| **Configuration** | All the parameters that were used for that flight (altitude, pitch, mass, thrust, etc.) |
+
+> Log files are JSON format and saved to: `~/Documents/rocket-simulator/logs/flight_YYYYMMDD_HHMMSS.json`
+
+---
 
 ### MAPS Tab
 
-_Reserved for map / trajectory visualization. Currently blank — to be implemented when GPS telemetry integration is available._
+Displays the rocket's GPS position on a map. The position updates in real time during flight using the launch site coordinates and the rocket's downrange distance projected along the yaw heading.
 
 ---
 
 ## Side Panel — IMU & Attitude
 
-The right-side panel shows inertial measurement data. It can be resized by dragging the divider handle.
+The right panel shows inertial measurement data. Always visible regardless of which tab is active.
 
-### ATTITUDE
+### Attitude Indicator
 
-| Instrument | Description |
-|---|---|
-| **Attitude Indicator** | Artificial horizon showing roll and pitch angles in degrees |
-| **Compass Indicator** | Heading display showing yaw (0–360°) and yaw rate |
+An artificial horizon instrument showing:
+- **Pitch**: How far the nose is tilted up or down from horizontal
+- **Roll**: How far the rocket is tilted sideways
 
-> Data source: MAVLink `ATTITUDE` (#30) — roll, pitch, yaw, roll rate, pitch rate, yaw rate.
+### Compass Indicator
 
-### RAW SENSORS · SCALED_IMU
+A heading display showing:
+- **Yaw**: Current compass heading (0–360°)
+- **Yaw rate**: How fast the heading is changing
 
-Three sensor cards, each showing X / Y / Z axes with a centered bar graph and color-coded values:
+### Raw Sensors
 
-| Sensor | Unit | Warning | Critical | Description |
-|---|---|---|---|---|
-| **ACCELEROMETER** | m/s² | ±10 | ±15 | Linear acceleration on each axis |
-| **GYROSCOPE** | deg/s | ±45 | ±90 | Angular rate on each axis |
-| **MAGNETOMETER** | mGauss | — | — | Magnetic field strength on each axis |
+Three sensor cards showing X / Y / Z axis values with bar graphs:
 
-Bar color: 🟢 normal · 🟡 at warning threshold · 🔴 at critical threshold.
+| Sensor | Unit | What It Measures |
+|---|---|---|
+| **Accelerometer** | m/s² | Linear acceleration on each axis. During BOOST this shows the thrust force; in free flight it shows gravity |
+| **Gyroscope** | deg/s | How fast the rocket is rotating around each axis |
+| **Magnetometer** | mGauss | Earth's magnetic field strength, used to determine compass heading |
 
-> Data source: MAVLink `SCALED_IMU` (#26).
+Bar colors indicate intensity: green (normal), yellow (warning), red (critical).
 
 ---
 
-## Connecting to Real Hardware
+## Flight Log (Auto-Save)
 
-1. Click **CONNECT** in the header.
-2. The application will open the MAVLink serial link (configuration to be added in settings).
-3. On successful connection the button turns green and shows **DISCONNECT**.
-4. All simulated data in the stores will be replaced by live MAVLink messages automatically — no other changes needed.
+Every completed flight is automatically saved when the rocket lands (LANDED phase). No action is needed from the user.
 
-> **Note:** When connected to real hardware, do **not** start a simulation — the simulation and live data both write to the same stores.
+### What Is Saved
+
+| Section | Data |
+|---|---|
+| **Meta** | Flight ID (based on date/time), date, data source (simulation or controller) |
+| **Configuration** | All initial values and rocket specifications used for the flight |
+| **Events** | Every phase transition with its timestamp |
+| **Summary** | Max altitude, max vertical speed, total flight duration, downrange distance |
+| **Telemetry** | Full time-series of altitude and vertical speed, sampled ~10 times per second |
+
+### File Location
+
+```
+~/Documents/rocket-simulator/logs/flight_YYYYMMDD_HHMMSS.json
+```
+
+Example: `flight_20260405_143022.json`
+
+These files can be opened later using the **LOG REPLAY** tab.
+
+---
+
+## Connecting a Serial Controller
+
+1. Plug your flight controller into the computer via USB.
+2. Click the **⟳** button next to the port dropdown to refresh available ports.
+3. Select the correct port from the dropdown (e.g., `/dev/tty.usbserial-XXX` on Mac).
+4. Click **CONNECT**. The status dot turns green when connected.
+5. Switch the data source to **CONTROLLER** on the SIMULATION tab.
+6. Enter your **Rocket Specifications** and press **✓ CONFIRM**.
+7. Press **▲ LAUNCH** when ready.
+
+The controller must send CSV data over serial in this format:
+```
+altitudeAbs, altitudeRel, pitch, roll, yaw, latitude, longitude
+```
+
+Default baud rate: **115200**.
