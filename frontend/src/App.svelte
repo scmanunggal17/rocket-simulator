@@ -25,7 +25,7 @@
     import { imuSource } from "./lib/stores/imuSource";
     import { EventsOn } from "../wailsjs/runtime/runtime";
 
-    let sidePanelWidth = 440;
+    let sidePanelWidth = 240;
     let isResizing = false;
     let activeTab: "simulation" | "maps" | "trajectory" | "replay" =
         "simulation";
