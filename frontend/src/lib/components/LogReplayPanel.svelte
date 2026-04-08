@@ -332,6 +332,26 @@
                                 >{log.config.countdownDuration} s</span
                             >
                         </div>
+                        {#if log.config.nozzleType}
+                            <div class="kv">
+                                <span class="k">Nozzle Type</span>
+                                <span class="v">{log.config.nozzleType}</span>
+                            </div>
+                            <div class="kv">
+                                <span class="k">Thrust Eff.</span>
+                                <span class="v"
+                                    >{(
+                                        (log.config.thrustEfficiency ?? 1) * 100
+                                    ).toFixed(0)}%</span
+                                >
+                            </div>
+                            <div class="kv">
+                                <span class="k">Nozzle Mass</span>
+                                <span class="v"
+                                    >{log.config.nozzleMass ?? 0} kg</span
+                                >
+                            </div>
+                        {/if}
                         <div class="kv">
                             <span class="k">Lat / Lon</span>
                             <span class="v"

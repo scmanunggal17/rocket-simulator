@@ -9,9 +9,19 @@
         unconfigureSimulation,
         countdownDuration,
     } from "../stores/simulationControl";
+    import type { NozzleType } from "../stores/flightStore";
     import { imuSource } from "../stores/imuSource";
     import { connected } from "../stores/telemetryStore";
     import { get } from "svelte/store";
+
+    // Nozzle presets
+    const nozzlePresets: Record<string, { efficiency: number; mass: number }> =
+        {
+            conical: { efficiency: 0.93, mass: 0.5 },
+            bell: { efficiency: 0.97, mass: 0.7 },
+            aerospike: { efficiency: 0.99, mass: 1.0 },
+            custom: { efficiency: 0.95, mass: 0.5 },
+        };
 
     // Configuration inputs — seeded from the store so tab-switching doesn't reset them
     const _cfg = get(simConfig);
@@ -26,9 +36,21 @@
     let thrust = _cfg.thrust;
     let burnTime = _cfg.burnTime;
     let fuelMass = _cfg.fuelMass;
+    let nozzleType: NozzleType = _cfg.nozzleType;
+    let thrustEfficiency = _cfg.thrustEfficiency;
+    let nozzleMass = _cfg.nozzleMass;
 
     $: locked = $flightPhase !== "STANDBY";
     $: isSerial = $imuSource === "real";
+    $: isCustomNozzle = nozzleType === "custom";
+
+    function onNozzleChange() {
+        const preset = nozzlePresets[nozzleType];
+        if (nozzleType !== "custom") {
+            thrustEfficiency = preset.efficiency;
+            nozzleMass = preset.mass;
+        }
+    }
 
     function handleConfirm() {
         configureSimulation({
@@ -43,11 +65,22 @@
             thrust,
             burnTime,
             fuelMass,
+            nozzleType,
+            thrustEfficiency,
+            nozzleMass,
         });
     }
 
     function handleControllerConfirm() {
-        configureControllerSpecs({ dryMass, thrust, burnTime, fuelMass });
+        configureControllerSpecs({
+            dryMass,
+            thrust,
+            burnTime,
+            fuelMass,
+            nozzleType,
+            thrustEfficiency,
+            nozzleMass,
+        });
     }
 </script>
 
@@ -246,6 +279,53 @@
                         </div>
                     </label>
                     <label class="field">
+                        <span class="field-label">Nozzle Type</span>
+                        <div class="input-row">
+                            <select
+                                class="field-input field-select"
+                                bind:value={nozzleType}
+                                on:change={onNozzleChange}
+                                disabled={locked}
+                            >
+                                <option value="conical">Conical</option>
+                                <option value="bell">Bell (de Laval)</option>
+                                <option value="aerospike">Aerospike</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Thrust Efficiency</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={thrustEfficiency}
+                                step="0.01"
+                                min={0.01}
+                                max={1}
+                                disabled={locked || !isCustomNozzle}
+                            />
+                            <span class="field-unit"
+                                >{(thrustEfficiency * 100).toFixed(0)}%</span
+                            >
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Nozzle Mass</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={nozzleMass}
+                                step="0.1"
+                                min={0}
+                                disabled={locked || !isCustomNozzle}
+                            />
+                            <span class="field-unit">kg</span>
+                        </div>
+                    </label>
+                    <label class="field">
                         <span class="field-label">Count Down Time</span>
                         <div class="input-row">
                             <input
@@ -361,6 +441,53 @@
                                 step="0.1"
                                 min={0.1}
                                 disabled={locked}
+                            />
+                            <span class="field-unit">kg</span>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Nozzle Type</span>
+                        <div class="input-row">
+                            <select
+                                class="field-input field-select"
+                                bind:value={nozzleType}
+                                on:change={onNozzleChange}
+                                disabled={locked}
+                            >
+                                <option value="conical">Conical</option>
+                                <option value="bell">Bell (de Laval)</option>
+                                <option value="aerospike">Aerospike</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Thrust Efficiency</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={thrustEfficiency}
+                                step="0.01"
+                                min={0.01}
+                                max={1}
+                                disabled={locked || !isCustomNozzle}
+                            />
+                            <span class="field-unit"
+                                >{(thrustEfficiency * 100).toFixed(0)}%</span
+                            >
+                        </div>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">Nozzle Mass</span>
+                        <div class="input-row">
+                            <input
+                                type="number"
+                                class="field-input"
+                                bind:value={nozzleMass}
+                                step="0.1"
+                                min={0}
+                                disabled={locked || !isCustomNozzle}
                             />
                             <span class="field-unit">kg</span>
                         </div>
@@ -495,6 +622,21 @@
     .field-input:focus {
         border-color: #38bdf8;
         box-shadow: 0 0 6px rgba(56, 189, 248, 0.3);
+    }
+
+    .field-select {
+        max-width: 160px;
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+        padding-right: 28px;
+    }
+
+    .field-select:disabled {
+        cursor: not-allowed;
     }
 
     .field-input:disabled {

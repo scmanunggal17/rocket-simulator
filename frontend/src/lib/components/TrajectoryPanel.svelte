@@ -8,8 +8,13 @@
     import { roll, pitch, yaw } from "../stores/imuStore";
     import { trail, missionTime } from "../stores/trajectoryStore";
     import type { TrailPoint } from "../stores/trajectoryStore";
-    import { simulating, flightPhase } from "../stores/simulationControl";
+    import {
+        simulating,
+        flightPhase,
+        simConfig,
+    } from "../stores/simulationControl";
     import type { FlightPhase } from "../stores/simulationControl";
+    import type { NozzleType } from "../stores/flightStore";
     import { get } from "svelte/store";
 
     // ── Canvas refs ───────────────────────────────────────────────────────────
@@ -30,6 +35,7 @@
     let _missionTime = get(missionTime);
     let _simulating = false;
     let _phase: FlightPhase = "STANDBY";
+    let _nozzleType: NozzleType = get(simConfig).nozzleType;
     let lastTs = 0;
 
     const unsubs = [
@@ -50,6 +56,7 @@
         missionTime.subscribe((v) => (_missionTime = v)),
         simulating.subscribe((v) => (_simulating = v)),
         flightPhase.subscribe((v) => (_phase = v)),
+        simConfig.subscribe((v) => (_nozzleType = v.nozzleType)),
     ];
 
     // ── Colour helpers ────────────────────────────────────────────────────────
@@ -316,36 +323,275 @@
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // ── Engine plume (BOOST phase — fuel is burning) ──────────────────────
-        if (_phase === "BOOST") {
-            const plumeLen = bodyLen * (0.3 + Math.random() * 0.12);
-            const plumeGrd = ctx.createLinearGradient(
-                0,
-                tailY,
-                0,
-                tailY + plumeLen,
-            );
-            plumeGrd.addColorStop(0, "rgba(255,255,255,0.9)");
-            plumeGrd.addColorStop(0.15, "rgba(255,200,50,0.85)");
-            plumeGrd.addColorStop(0.5, "rgba(249,115,22,0.6)");
-            plumeGrd.addColorStop(1, "rgba(249,115,22,0)");
+        // ── Nozzle shape (drawn at tail of body tube) ─────────────────────────
+        const nzH = bodyLen * 0.1; // nozzle height
+        const nzCol = "rgba(100,116,139,0.85)";
+        const nzStroke = "rgba(148,163,184,0.4)";
 
+        if (_nozzleType === "conical" || _nozzleType === "custom") {
+            // Conical: simple trapezoid flaring outward
+            const topW = bodyRad * 0.7;
+            const botW = bodyRad * 1.15;
             ctx.beginPath();
-            ctx.moveTo(-bodyRad * 0.55, tailY);
-            ctx.quadraticCurveTo(
-                -bodyRad * 0.8,
-                tailY + plumeLen * 0.5,
-                0,
-                tailY + plumeLen,
-            );
-            ctx.quadraticCurveTo(
-                bodyRad * 0.8,
-                tailY + plumeLen * 0.5,
-                bodyRad * 0.55,
-                tailY,
-            );
-            ctx.fillStyle = plumeGrd;
+            ctx.moveTo(-topW, tailY);
+            ctx.lineTo(-botW, tailY + nzH);
+            ctx.lineTo(botW, tailY + nzH);
+            ctx.lineTo(topW, tailY);
+            ctx.closePath();
+            ctx.fillStyle = nzCol;
             ctx.fill();
+            ctx.strokeStyle = nzStroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        } else if (_nozzleType === "bell") {
+            // Bell (de Laval): converge then flare with a curved bell shape
+            const throatW = bodyRad * 0.4;
+            const exitW = bodyRad * 1.25;
+            const throatY = tailY + nzH * 0.35;
+            const exitY = tailY + nzH;
+            // Left side
+            ctx.beginPath();
+            ctx.moveTo(-bodyRad * 0.7, tailY);
+            ctx.lineTo(-throatW, throatY);
+            ctx.bezierCurveTo(
+                -throatW,
+                throatY + nzH * 0.2,
+                -exitW * 0.6,
+                exitY - nzH * 0.1,
+                -exitW,
+                exitY,
+            );
+            ctx.lineTo(exitW, exitY);
+            ctx.bezierCurveTo(
+                exitW * 0.6,
+                exitY - nzH * 0.1,
+                throatW,
+                throatY + nzH * 0.2,
+                throatW,
+                throatY,
+            );
+            ctx.lineTo(bodyRad * 0.7, tailY);
+            ctx.closePath();
+            ctx.fillStyle = nzCol;
+            ctx.fill();
+            ctx.strokeStyle = nzStroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            // Throat line
+            ctx.beginPath();
+            ctx.moveTo(-throatW, throatY);
+            ctx.lineTo(throatW, throatY);
+            ctx.strokeStyle = "rgba(148,163,184,0.25)";
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+        } else if (_nozzleType === "aerospike") {
+            // Aerospike: flat base with a central spike (plug)
+            const baseW = bodyRad * 1.1;
+            const spikeLen = nzH * 1.6;
+            // Outer cowl (flat ring)
+            ctx.beginPath();
+            ctx.moveTo(-bodyRad * 0.7, tailY);
+            ctx.lineTo(-baseW, tailY + nzH * 0.4);
+            ctx.lineTo(-baseW, tailY + nzH * 0.7);
+            ctx.lineTo(-bodyRad * 0.35, tailY + nzH * 0.5);
+            ctx.lineTo(-bodyRad * 0.35, tailY);
+            ctx.closePath();
+            ctx.fillStyle = nzCol;
+            ctx.fill();
+            ctx.strokeStyle = nzStroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            // Right cowl (mirror)
+            ctx.beginPath();
+            ctx.moveTo(bodyRad * 0.7, tailY);
+            ctx.lineTo(baseW, tailY + nzH * 0.4);
+            ctx.lineTo(baseW, tailY + nzH * 0.7);
+            ctx.lineTo(bodyRad * 0.35, tailY + nzH * 0.5);
+            ctx.lineTo(bodyRad * 0.35, tailY);
+            ctx.closePath();
+            ctx.fillStyle = nzCol;
+            ctx.fill();
+            ctx.strokeStyle = nzStroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            // Central spike plug
+            ctx.beginPath();
+            ctx.moveTo(-bodyRad * 0.15, tailY);
+            ctx.lineTo(0, tailY + spikeLen);
+            ctx.lineTo(bodyRad * 0.15, tailY);
+            ctx.closePath();
+            ctx.fillStyle = "rgba(71,85,105,0.9)";
+            ctx.fill();
+            ctx.strokeStyle = col;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+        }
+
+        // ── Engine plume (BOOST phase — different animation per nozzle) ───────
+        if (_phase === "BOOST") {
+            const t = performance.now() / 1000;
+
+            if (_nozzleType === "conical" || _nozzleType === "custom") {
+                // Conical: classic single cone plume, slightly unsteady
+                const plumeLen = bodyLen * (0.32 + Math.random() * 0.12);
+                const exitY2 = tailY + nzH;
+                const plumeGrd = ctx.createLinearGradient(
+                    0,
+                    exitY2,
+                    0,
+                    exitY2 + plumeLen,
+                );
+                plumeGrd.addColorStop(0, "rgba(255,255,255,0.9)");
+                plumeGrd.addColorStop(0.15, "rgba(255,200,50,0.85)");
+                plumeGrd.addColorStop(0.5, "rgba(249,115,22,0.6)");
+                plumeGrd.addColorStop(1, "rgba(249,115,22,0)");
+
+                ctx.beginPath();
+                ctx.moveTo(-bodyRad * 0.7, exitY2);
+                ctx.quadraticCurveTo(
+                    -bodyRad * 0.9,
+                    exitY2 + plumeLen * 0.5,
+                    0,
+                    exitY2 + plumeLen,
+                );
+                ctx.quadraticCurveTo(
+                    bodyRad * 0.9,
+                    exitY2 + plumeLen * 0.5,
+                    bodyRad * 0.7,
+                    exitY2,
+                );
+                ctx.fillStyle = plumeGrd;
+                ctx.fill();
+            } else if (_nozzleType === "bell") {
+                // Bell: focused tight plume with bright core + shock diamonds
+                const plumeLen = bodyLen * (0.38 + Math.random() * 0.08);
+                const exitY2 = tailY + nzH;
+                const exitW = bodyRad * 1.25;
+                const plumeGrd = ctx.createLinearGradient(
+                    0,
+                    exitY2,
+                    0,
+                    exitY2 + plumeLen,
+                );
+                plumeGrd.addColorStop(0, "rgba(255,255,255,0.95)");
+                plumeGrd.addColorStop(0.1, "rgba(200,220,255,0.9)");
+                plumeGrd.addColorStop(0.3, "rgba(100,180,255,0.7)");
+                plumeGrd.addColorStop(0.6, "rgba(249,115,22,0.5)");
+                plumeGrd.addColorStop(1, "rgba(249,115,22,0)");
+
+                // Outer plume
+                ctx.beginPath();
+                ctx.moveTo(-exitW * 0.6, exitY2);
+                ctx.quadraticCurveTo(
+                    -exitW * 0.3,
+                    exitY2 + plumeLen * 0.5,
+                    0,
+                    exitY2 + plumeLen,
+                );
+                ctx.quadraticCurveTo(
+                    exitW * 0.3,
+                    exitY2 + plumeLen * 0.5,
+                    exitW * 0.6,
+                    exitY2,
+                );
+                ctx.fillStyle = plumeGrd;
+                ctx.fill();
+
+                // Shock diamonds (bright spots along the core)
+                const diamonds = 3;
+                for (let i = 0; i < diamonds; i++) {
+                    const dy = exitY2 + plumeLen * (0.12 + 0.22 * i);
+                    const dw = bodyRad * (0.25 - 0.06 * i);
+                    const flicker = 0.6 + Math.sin(t * 20 + i * 2.5) * 0.4;
+                    ctx.beginPath();
+                    ctx.moveTo(0, dy - dw * 0.6);
+                    ctx.lineTo(-dw, dy);
+                    ctx.lineTo(0, dy + dw * 0.6);
+                    ctx.lineTo(dw, dy);
+                    ctx.closePath();
+                    ctx.fillStyle = `rgba(200,220,255,${(0.5 * flicker).toFixed(2)})`;
+                    ctx.fill();
+                }
+            } else if (_nozzleType === "aerospike") {
+                // Aerospike: wide flat plume hugging the spike, adjusts with altitude
+                const plumeLen = bodyLen * (0.3 + Math.random() * 0.06);
+                const spikeLen = nzH * 1.6;
+                const baseW = bodyRad * 1.1;
+                const spikeEndY = tailY + spikeLen;
+
+                // Left annular plume
+                const plumeGrdL = ctx.createLinearGradient(
+                    -baseW,
+                    tailY,
+                    0,
+                    spikeEndY + plumeLen,
+                );
+                plumeGrdL.addColorStop(0, "rgba(255,255,255,0.85)");
+                plumeGrdL.addColorStop(0.15, "rgba(255,180,50,0.8)");
+                plumeGrdL.addColorStop(0.5, "rgba(249,115,22,0.5)");
+                plumeGrdL.addColorStop(1, "rgba(249,80,22,0)");
+
+                const flutter = Math.sin(t * 15) * bodyRad * 0.08;
+
+                // Left flame
+                ctx.beginPath();
+                ctx.moveTo(-baseW, tailY + nzH * 0.7);
+                ctx.quadraticCurveTo(
+                    -baseW * 0.6 + flutter,
+                    spikeEndY,
+                    -bodyRad * 0.1,
+                    spikeEndY + plumeLen * 0.7,
+                );
+                ctx.lineTo(0, spikeEndY + plumeLen);
+                ctx.lineTo(-bodyRad * 0.15, tailY + spikeLen);
+                ctx.quadraticCurveTo(
+                    -bodyRad * 0.3,
+                    tailY + nzH * 0.5,
+                    -bodyRad * 0.35,
+                    tailY + nzH * 0.5,
+                );
+                ctx.closePath();
+                ctx.fillStyle = plumeGrdL;
+                ctx.fill();
+
+                // Right flame (mirror)
+                ctx.beginPath();
+                ctx.moveTo(baseW, tailY + nzH * 0.7);
+                ctx.quadraticCurveTo(
+                    baseW * 0.6 - flutter,
+                    spikeEndY,
+                    bodyRad * 0.1,
+                    spikeEndY + plumeLen * 0.7,
+                );
+                ctx.lineTo(0, spikeEndY + plumeLen);
+                ctx.lineTo(bodyRad * 0.15, tailY + spikeLen);
+                ctx.quadraticCurveTo(
+                    bodyRad * 0.3,
+                    tailY + nzH * 0.5,
+                    bodyRad * 0.35,
+                    tailY + nzH * 0.5,
+                );
+                ctx.closePath();
+                ctx.fillStyle = plumeGrdL;
+                ctx.fill();
+
+                // Bright core at spike tip
+                const coreGlow = ctx.createRadialGradient(
+                    0,
+                    spikeEndY,
+                    0,
+                    0,
+                    spikeEndY,
+                    bodyRad * 0.6,
+                );
+                coreGlow.addColorStop(0, "rgba(255,255,255,0.7)");
+                coreGlow.addColorStop(0.5, "rgba(255,200,80,0.3)");
+                coreGlow.addColorStop(1, "rgba(255,200,80,0)");
+                ctx.beginPath();
+                ctx.arc(0, spikeEndY, bodyRad * 0.6, 0, Math.PI * 2);
+                ctx.fillStyle = coreGlow;
+                ctx.fill();
+            }
         }
 
         // ── Drogue/main chute (after fuel empty: COAST → LANDED) ──────────────
@@ -478,7 +724,7 @@
     }
 
     .rocket-view {
-        width: 200px;
+        width: 400px;
         flex-shrink: 0;
         display: flex;
         flex-direction: column;

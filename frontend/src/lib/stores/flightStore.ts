@@ -15,6 +15,8 @@ export const apogeeEta = writable(0);         // s
 export const rocketLat = writable<number | null>(null);  // degrees, null = no fix
 export const rocketLon = writable<number | null>(null);  // degrees, null = no fix
 
+export type NozzleType = "conical" | "bell" | "aerospike" | "custom";
+
 /** Initial values the user enters in SIM mode — matches the serial CSV fields + rocket specs */
 export interface SimInitialValues {
     altitudeAbs: number;  // m ASL
@@ -28,6 +30,9 @@ export interface SimInitialValues {
     thrust: number;       // N
     burnTime: number;     // s
     fuelMass: number;     // kg
+    nozzleType: NozzleType;
+    thrustEfficiency: number; // 0–1 multiplier
+    nozzleMass: number;       // kg, added to dry mass
 }
 
 const G = 9.80665;
@@ -42,7 +47,9 @@ export function startFlightSimulation(
     onPhaseChange?: (phase: string) => void
 ): () => void {
     const burnTime = init.burnTime;
-    const boostAccel = init.thrust / init.dryMass;
+    const effectiveThrust = init.thrust * init.thrustEfficiency;
+    const totalDryMass = init.dryMass + init.nozzleMass;
+    const boostAccel = effectiveThrust / totalDryMass;
     const fuelRate = init.fuelMass / burnTime; // kg/s
 
     // Set fuel capacity from user input

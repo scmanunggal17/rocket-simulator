@@ -45,6 +45,9 @@ export interface FlightLog {
         thrust: number;
         burnTime: number;
         countdownDuration: number;
+        nozzleType: string;
+        thrustEfficiency: number;
+        nozzleMass: number;
     };
     events: FlightEvent[];
     summary: FlightLogSummary;
@@ -119,6 +122,9 @@ async function _saveLog(): Promise<void> {
             thrust: cfg.thrust,
             burnTime: cfg.burnTime,
             countdownDuration: get(countdownDuration),
+            nozzleType: cfg.nozzleType,
+            thrustEfficiency: cfg.thrustEfficiency,
+            nozzleMass: cfg.nozzleMass,
         },
         events,
         summary: {

@@ -30,6 +30,9 @@ export const simConfig = writable<SimInitialValues>({
     thrust: 300,
     burnTime: 5,
     fuelMass: 3,
+    nozzleType: "conical",
+    thrustEfficiency: 0.93,
+    nozzleMass: 0.5,
 });
 
 let stopFns: (() => void)[] = [];
@@ -37,6 +40,7 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null;
 let currentConfig: SimInitialValues = {
     altitudeAbs: 100, altitudeRel: 0, pitch: 45, roll: 0, yaw: 0,
     lat: -7.800000, lon: 110.370000, dryMass: 10, thrust: 300, burnTime: 5, fuelMass: 3,
+    nozzleType: "conical", thrustEfficiency: 0.93, nozzleMass: 0.5,
 };
 
 export function configureSimulation(config: SimInitialValues): void {
@@ -57,13 +61,13 @@ export function configureSimulation(config: SimInitialValues): void {
  * Controller mode: save rocket specs and mark READY.
  * Resets telemetry fields in simConfig so SIM values never leak into controller launches.
  */
-export function configureControllerSpecs(specs: { dryMass: number; thrust: number; burnTime: number; fuelMass: number }): void {
+export function configureControllerSpecs(specs: { dryMass: number; thrust: number; burnTime: number; fuelMass: number; nozzleType: string; thrustEfficiency: number; nozzleMass: number }): void {
     simConfig.set({
         altitudeAbs: 0, altitudeRel: 0,
         pitch: 0, roll: 0, yaw: 0,
         lat: 0, lon: 0,
         ...specs,
-    });
+    } as SimInitialValues);
     configured.set(true);
     flightPhase.set("READY");
 }
@@ -196,6 +200,9 @@ export function launchFromController(): void {
         thrust: cfg.thrust,
         burnTime: cfg.burnTime,
         fuelMass: cfg.fuelMass,
+        nozzleType: cfg.nozzleType,
+        thrustEfficiency: cfg.thrustEfficiency,
+        nozzleMass: cfg.nozzleMass,
     };
 
     simConfig.set(currentConfig);
