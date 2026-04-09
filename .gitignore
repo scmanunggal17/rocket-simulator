@@ -16,3 +16,6 @@ frontend/dist
 *.dll
 *.so
 *.dylib
+
+ss
+*docx
