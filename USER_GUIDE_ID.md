@@ -147,13 +147,18 @@ Ini mendefinisikan sifat fisik roketmu. Tersedia di mode Simulasi maupun Kontrol
 | **Gaya Dorong** | N | 1000 | Gaya yang dihasilkan motor dalam Newton. Gaya dorong lebih besar = akselerasi lebih cepat |
 | **Waktu Bakar** | s | 5 | Berapa lama motor menyala. Setelah waktu ini, bahan bakar habis dan roket melaju dengan momentum |
 | **Massa BBM** | kg | 3 | Total berat propelan. Digunakan untuk melacak konsumsi bahan bakar dan persentase sisa |
+| **Tipe Nosel** | — | Conical | Bentuk nosel roket. Memilih preset akan mengisi otomatis Efisiensi Dorong dan Massa Nosel. Pilihan: **Conical** (93%, 0,5 kg), **Bell / de Laval** (97%, 0,7 kg), **Aerospike** (99%, 1,0 kg), **Custom** (ditentukan pengguna) |
+| **Efisiensi Dorong** | 0–1 | 0,93 | Fraksi gaya dorong yang benar-benar dihasilkan nosel. Hanya dapat diedit jika Tipe Nosel adalah Custom. Gaya dorong efektif = Gaya Dorong × Efisiensi Dorong |
+| **Massa Nosel** | kg | 0,5 | Berat komponen nosel. Ditambahkan ke Massa Kering saat menghitung akselerasi. Hanya dapat diedit jika Tipe Nosel adalah Custom |
 | **Waktu Hitung Mundur** | s | 10 | Berapa detik hitung mundur sebelum pengapian setelah menekan LUNCUR |
 
 #### Cara Simulasi Menghitung Penerbangan
 
-1. **Fase BOOST**: Motor memberikan gaya dorong konstan. Akselerasi = gaya_dorong ÷ massa_kering. Akselerasi ini dibagi menjadi komponen vertikal dan horizontal berdasarkan sudut pitch.
-   - Akselerasi vertikal = sin(pitch) × (gaya_dorong ÷ massa_kering) − gravitasi
-   - Akselerasi horizontal = cos(pitch) × (gaya_dorong ÷ massa_kering)
+1. **Fase BOOST**: Motor memberikan gaya dorong konstan yang dikurangi oleh efisiensi nosel. Massa nosel ditambahkan ke massa kering saat menghitung akselerasi. Akselerasi ini dibagi menjadi komponen vertikal dan horizontal berdasarkan sudut pitch.
+   - Gaya dorong efektif = Gaya Dorong × Efisiensi Dorong
+   - Total massa kering = Massa Kering + Massa Nosel
+   - Akselerasi vertikal = sin(pitch) × (gaya_dorong_efektif ÷ total_massa_kering) − gravitasi
+   - Akselerasi horizontal = cos(pitch) × (gaya_dorong_efektif ÷ total_massa_kering)
 
 2. **Fase COAST**: Motor berhenti. Hanya gravitasi yang bekerja pada roket (menarik ke bawah sebesar 9,81 m/s²). Kecepatan horizontal sedikit berkurang akibat hambatan udara.
 

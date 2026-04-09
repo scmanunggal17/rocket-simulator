@@ -147,13 +147,18 @@ These define the physical properties of your rocket. Available in both Simulatio
 | **Thrust** | N | 1000 | Force produced by the motor in Newtons. Higher thrust = faster acceleration |
 | **Burn Time** | s | 5 | How long the motor fires. After this time, the fuel is exhausted and the rocket coasts on momentum |
 | **Fuel Mass** | kg | 3 | Total weight of the propellant. Used to track fuel consumption and remaining fuel percentage |
+| **Nozzle Type** | — | Conical | Shape of the rocket nozzle. Selecting a preset automatically fills in Thrust Efficiency and Nozzle Mass. Options: **Conical** (93%, 0.5 kg), **Bell / de Laval** (97%, 0.7 kg), **Aerospike** (99%, 1.0 kg), **Custom** (user-defined) |
+| **Thrust Efficiency** | 0–1 | 0.93 | Fraction of rated thrust actually delivered by the nozzle. Editable only when Nozzle Type is Custom. Effective thrust = Thrust × Thrust Efficiency |
+| **Nozzle Mass** | kg | 0.5 | Weight of the nozzle hardware. Added to Dry Mass when calculating acceleration. Editable only when Nozzle Type is Custom |
 | **Count Down Time** | s | 10 | How many seconds to count down before ignition after pressing LAUNCH |
 
 #### How the Simulation Calculates Flight
 
-1. **BOOST phase**: The motor applies a constant thrust. Acceleration = thrust ÷ dry_mass. This acceleration is split into vertical and horizontal components based on the pitch angle.
-   - Vertical acceleration = sin(pitch) × (thrust ÷ dry_mass) − gravity
-   - Horizontal acceleration = cos(pitch) × (thrust ÷ dry_mass)
+1. **BOOST phase**: The motor applies a constant thrust, reduced by the nozzle's thrust efficiency. The nozzle mass is added to dry mass when computing acceleration. This acceleration is split into vertical and horizontal components based on the pitch angle.
+   - Effective thrust = Thrust × Thrust Efficiency
+   - Total dry mass = Dry Mass + Nozzle Mass
+   - Vertical acceleration = sin(pitch) × (effective_thrust ÷ total_dry_mass) − gravity
+   - Horizontal acceleration = cos(pitch) × (effective_thrust ÷ total_dry_mass)
 
 2. **COAST phase**: Motor has stopped. Only gravity acts on the rocket (pulling it down at 9.81 m/s²). Horizontal speed decreases slightly due to air drag.
 
