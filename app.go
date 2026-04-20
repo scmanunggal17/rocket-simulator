@@ -118,7 +118,8 @@ func (a *App) readLoop(p serial.Port) {
 	}
 }
 
-// parseLine parses a CSV line: altAbs,altRel,pitch,roll,yaw,lat,lon
+// parseLine parses a CSV line: altAbs,altRel,pitch,roll,yaw,lat,lon[,nozzleType]
+// nozzleType is optional: 1=conical, 2=bell, 3=aerospike, 0=user-defined
 func (a *App) parseLine(line string) {
 	fields := strings.Split(line, ",")
 	if len(fields) < 7 {
@@ -137,6 +138,14 @@ func (a *App) parseLine(line string) {
 		return
 	}
 
+	// Optional 8th field: nozzle type (0=user-defined, 1=conical, 2=bell, 3=aerospike)
+	nozzleType := 0
+	if len(fields) >= 8 {
+		if n, err := strconv.Atoi(strings.TrimSpace(fields[7])); err == nil && n >= 0 && n <= 3 {
+			nozzleType = n
+		}
+	}
+
 	runtime.EventsEmit(a.ctx, "serial:data", map[string]any{
 		"altitudeAbs": altAbs,
 		"altitudeRel": altRel,
@@ -145,6 +154,7 @@ func (a *App) parseLine(line string) {
 		"yaw":         yawVal,
 		"lat":         lat,
 		"lon":         lon,
+		"nozzleType":  nozzleType,
 	})
 
 	a.mu.Lock()
