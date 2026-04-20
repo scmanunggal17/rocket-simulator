@@ -8,6 +8,8 @@ export const lastSerialData = writable<{
     altitudeAbs: number; altitudeRel: number;
     pitch: number; roll: number; yaw: number;
     lat: number; lon: number;
+    /** 0 = user-defined, 1 = conical, 2 = bell, 3 = aerospike */
+    nozzleType: number;
 } | null>(null);
 
 export function startTelemetrySimulation(): () => void {

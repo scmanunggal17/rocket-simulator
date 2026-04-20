@@ -11,8 +11,14 @@
     } from "../stores/simulationControl";
     import type { NozzleType } from "../stores/flightStore";
     import { imuSource } from "../stores/imuSource";
-    import { connected } from "../stores/telemetryStore";
+    import { connected, lastSerialData } from "../stores/telemetryStore";
     import { get } from "svelte/store";
+
+    const controllerNozzleMap: Record<number, NozzleType> = {
+        1: "conical",
+        2: "bell",
+        3: "aerospike",
+    };
 
     // Nozzle presets
     const nozzlePresets: Record<string, { efficiency: number; mass: number }> =
@@ -43,6 +49,21 @@
     $: locked = $flightPhase !== "STANDBY";
     $: isSerial = $imuSource === "real";
     $: isCustomNozzle = nozzleType === "custom";
+
+    // In controller mode, nozzle type may be dictated by the serial data (1-3).
+    // 0 means the controller does not specify it, so the user can edit.
+    $: controllerNozzleCode = $lastSerialData?.nozzleType ?? 0;
+    $: nozzleLockedByController =
+        isSerial && controllerNozzleCode >= 1 && controllerNozzleCode <= 3;
+    $: {
+        if (nozzleLockedByController) {
+            const mapped = controllerNozzleMap[controllerNozzleCode];
+            if (mapped && nozzleType !== mapped) {
+                nozzleType = mapped;
+                onNozzleChange();
+            }
+        }
+    }
 
     function onNozzleChange() {
         const preset = nozzlePresets[nozzleType];
@@ -452,13 +473,16 @@
                                 class="field-input field-select"
                                 bind:value={nozzleType}
                                 on:change={onNozzleChange}
-                                disabled={locked}
+                                disabled={locked || nozzleLockedByController}
                             >
                                 <option value="conical">Conical</option>
                                 <option value="bell">Bell (de Laval)</option>
                                 <option value="aerospike">Aerospike</option>
                                 <option value="custom">Custom</option>
                             </select>
+                            {#if nozzleLockedByController}
+                                <span class="controller-badge">CTL</span>
+                            {/if}
                         </div>
                     </label>
                     <label class="field">
@@ -796,6 +820,18 @@
     .hint-dot.hint-connected {
         background: #4ade80;
         box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+    }
+
+    .controller-badge {
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 1px;
+        color: #38bdf8;
+        background: rgba(56, 189, 248, 0.12);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        border-radius: 3px;
+        padding: 2px 5px;
+        flex-shrink: 0;
     }
 
     /* Controller info panel */

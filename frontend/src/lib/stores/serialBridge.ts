@@ -67,6 +67,7 @@ export function startSerialBridge(): () => void {
             yaw: d.yaw,
             lat: d.lat,
             lon: d.lon,
+            nozzleType: d.nozzleType ?? 0,
         });
 
         // Ignore serial data when:
