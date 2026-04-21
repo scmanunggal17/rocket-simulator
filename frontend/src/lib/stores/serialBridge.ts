@@ -19,7 +19,7 @@ import {
     maxAltitude, verticalSpeed, flightDuration, flightSpeed,
     acceleration, downrangeDistance,
 } from "./flightStore";
-import { connected, dataRate, lastSerialData } from "./telemetryStore";
+import { connected, dataRate, lastSerialData, rssi } from "./telemetryStore";
 import { simulating, flightPhase } from "./simulationControl";
 import { imuSource } from "./imuSource";
 import { get } from "svelte/store";
@@ -68,7 +68,9 @@ export function startSerialBridge(): () => void {
             lat: d.lat,
             lon: d.lon,
             nozzleType: d.nozzleType ?? 0,
+            rssi: d.rssi ?? 0,
         });
+        rssi.set(d.rssi ?? 0);
 
         // Ignore serial data when:
         // - simulation is running (simulation owns the stores)

@@ -2,6 +2,7 @@ import { writable } from "svelte/store";
 
 export const connected = writable(false);
 export const dataRate = writable(0);   // msg/s — counted from incoming messages
+export const rssi = writable<number>(0);
 
 /** Always holds the last raw serial data received, regardless of mode/phase guards. */
 export const lastSerialData = writable<{
@@ -10,6 +11,7 @@ export const lastSerialData = writable<{
     lat: number; lon: number;
     /** 0 = user-defined, 1 = conical, 2 = bell, 3 = aerospike */
     nozzleType: number;
+    rssi: number;
 } | null>(null);
 
 export function startTelemetrySimulation(): () => void {

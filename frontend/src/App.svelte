@@ -5,7 +5,7 @@
     import MapsPanel from "./lib/components/MapsPanel.svelte";
     import TrajectoryPanel from "./lib/components/TrajectoryPanel.svelte";
     import LogReplayPanel from "./lib/components/LogReplayPanel.svelte";
-    import { connected, dataRate } from "./lib/stores/telemetryStore";
+    import { connected, dataRate, rssi } from "./lib/stores/telemetryStore";
     import {
         flightPhase,
         countdown,
@@ -141,8 +141,9 @@
                 >▲ LAUNCH</button
             >
         {:else if $flightPhase === "COUNTDOWN"}
-            <button class="btn-launch launch-countdown" disabled
-                >T–{$countdown}</button
+            <span class="countdown-display">T–{$countdown}</span>
+            <button class="btn-launch launch-abort" on:click={abortSimulation}
+                >■ ABORT</button
             >
         {:else if $simulating && ($flightPhase === "BOOST" || $flightPhase === "COAST" || $flightPhase === "APOGEE" || $flightPhase === "DESCENT")}
             <button class="btn-launch launch-abort" on:click={abortSimulation}
@@ -159,6 +160,13 @@
                 <span class="telem-label">RATE</span>
                 <span class="telem-value"
                     >{$dataRate} <span class="telem-unit">msg/s</span></span
+                >
+            </div>
+            <div class="telem-item">
+                <span class="telem-label">RSSI</span>
+                <span class="telem-value"
+                    >{$rssi.toFixed(1)}
+                    <span class="telem-unit">dBm</span></span
                 >
             </div>
         </div>
@@ -495,20 +503,16 @@
         box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
     }
 
-    .btn-launch.launch-countdown {
-        border-color: #fbbf24;
+    .countdown-display {
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
         color: #fbbf24;
-        cursor: not-allowed;
+        padding: 6px 12px;
+        border: 1px solid #fbbf24;
+        border-radius: 5px;
+        background: transparent;
         animation: blink-border 0.6s ease-in-out infinite;
-    }
-    @keyframes blink-border {
-        0%,
-        100% {
-            box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
-        }
-        50% {
-            box-shadow: none;
-        }
     }
 
     .btn-launch.launch-abort {
