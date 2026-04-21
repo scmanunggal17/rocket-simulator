@@ -146,6 +146,14 @@ func (a *App) parseLine(line string) {
 		}
 	}
 
+	// Optional 9th field: RSSI (float)
+	rssi := 0.0
+	if len(fields) >= 9 {
+		if r, err := strconv.ParseFloat(strings.TrimSpace(fields[8]), 64); err == nil {
+			rssi = r
+		}
+	}
+
 	runtime.EventsEmit(a.ctx, "serial:data", map[string]any{
 		"altitudeAbs": altAbs,
 		"altitudeRel": altRel,
@@ -155,6 +163,7 @@ func (a *App) parseLine(line string) {
 		"lat":         lat,
 		"lon":         lon,
 		"nozzleType":  nozzleType,
+		"rssi":        rssi,
 	})
 
 	a.mu.Lock()
